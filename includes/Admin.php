@@ -77,7 +77,11 @@ class Admin {
 
         $this->settings->update($data);
 
-        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=config&' . ($generated ?? '') . 'saved=1'));
+        $tab = sanitize_text_field($_POST['gires_tab'] ?? 'config');
+        if (!in_array($tab, ['sets', 'migrations', 'config'], true)) {
+            $tab = 'config';
+        }
+        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=' . $tab . '&' . ($generated ?? '') . 'saved=1'));
         exit;
     }
 
@@ -388,21 +392,21 @@ class Admin {
     private function build_settings_from_request(array $request) {
         $current = $this->settings->get_all();
         return [
-            'migrations_path' => sanitize_text_field($request['migrations_path'] ?? ''),
-            'applied_option' => sanitize_text_field($request['applied_option'] ?? ''),
-            'rest_enabled' => !empty($request['rest_enabled']),
-            'rest_token' => sanitize_text_field($request['rest_token'] ?? ''),
-            'rest_hmac_secret' => sanitize_text_field($request['rest_hmac_secret'] ?? ''),
-            'rest_allowlist' => $this->normalize_allowlist($request['rest_allowlist'] ?? []),
+            'migrations_path' => sanitize_text_field($request['migrations_path'] ?? ($current['migrations_path'] ?? '')),
+            'applied_option' => sanitize_text_field($request['applied_option'] ?? ($current['applied_option'] ?? '')),
+            'rest_enabled' => isset($request['rest_enabled']) ? !empty($request['rest_enabled']) : !empty($current['rest_enabled']),
+            'rest_token' => sanitize_text_field($request['rest_token'] ?? ($current['rest_token'] ?? '')),
+            'rest_hmac_secret' => sanitize_text_field($request['rest_hmac_secret'] ?? ($current['rest_hmac_secret'] ?? '')),
+            'rest_allowlist' => $this->normalize_allowlist($request['rest_allowlist'] ?? ($current['rest_allowlist'] ?? [])),
             'rest_last_connection_ok' => $current['rest_last_connection_ok'] ?? false,
-            'remote_url' => esc_url_raw($request['remote_url'] ?? ''),
-            'ssh_host' => sanitize_text_field($request['ssh_host'] ?? ''),
-            'ssh_user' => sanitize_text_field($request['ssh_user'] ?? ''),
-            'ssh_path' => sanitize_text_field($request['ssh_path'] ?? ''),
-            'db_name' => sanitize_text_field($request['db_name'] ?? ''),
-            'db_user' => sanitize_text_field($request['db_user'] ?? ''),
-            'db_pass' => sanitize_text_field($request['db_pass'] ?? ''),
-            'db_host' => sanitize_text_field($request['db_host'] ?? ''),
+            'remote_url' => esc_url_raw($request['remote_url'] ?? ($current['remote_url'] ?? '')),
+            'ssh_host' => sanitize_text_field($request['ssh_host'] ?? ($current['ssh_host'] ?? '')),
+            'ssh_user' => sanitize_text_field($request['ssh_user'] ?? ($current['ssh_user'] ?? '')),
+            'ssh_path' => sanitize_text_field($request['ssh_path'] ?? ($current['ssh_path'] ?? '')),
+            'db_name' => sanitize_text_field($request['db_name'] ?? ($current['db_name'] ?? '')),
+            'db_user' => sanitize_text_field($request['db_user'] ?? ($current['db_user'] ?? '')),
+            'db_pass' => sanitize_text_field($request['db_pass'] ?? ($current['db_pass'] ?? '')),
+            'db_host' => sanitize_text_field($request['db_host'] ?? ($current['db_host'] ?? '')),
             'replication_sets' => $this->normalize_replication_sets($request['replication_sets'] ?? ($current['replication_sets'] ?? [])),
         ];
     }
@@ -694,7 +698,7 @@ class Admin {
                 ];
                 $export = $this->remote_request('POST', '/wp-json/gires-cicd/v1/replication/export', $payload);
                 if (empty($export['download_token'])) {
-                    $result = ['success' => false, 'message' => 'Backup DB impossible'];
+                    $result = ['success' => false, 'message' => $export['message'] ?? 'Backup DB impossible'];
                     break;
                 }
                 $sql = $this->remote_download('/wp-json/gires-cicd/v1/replication/download?token=' . urlencode($export['download_token']));

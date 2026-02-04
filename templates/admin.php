@@ -54,6 +54,11 @@ $is_gires_table = function ($table) {
     <?php if ($tab === 'sets') : ?>
         <h2>Sets de réplication</h2>
         <p class="description">Chaque set définit un flux PULL ou PUSH avec tables sélectionnées, search/replace et médias.</p>
+        <?php if (empty($settings['remote_url'])) : ?>
+            <div class="notice notice-warning"><p>URL distante manquante. Renseigne-la dans l’onglet Configuration.</p></div>
+        <?php else : ?>
+            <div class="notice notice-info"><p>URL distante: <code><?php echo esc_html($settings['remote_url']); ?></code></p></div>
+        <?php endif; ?>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" value="gires_cicd_save">
@@ -71,14 +76,26 @@ $is_gires_table = function ($table) {
                 <tbody>
                     <?php foreach (($sets ?? []) as $index => $set) : ?>
                         <tr>
+                            <?php $type = $set['type'] ?? 'pull'; ?>
                             <td><?php echo esc_html($set['name'] ?? ''); ?></td>
-                            <td><?php echo esc_html(strtoupper($set['type'] ?? 'pull')); ?></td>
-                            <td><code><?php echo esc_html($set['id'] ?? ''); ?></code></td>
+                            <td><?php echo esc_html(strtoupper($type)); ?></td>
+                            <td>
+                                <code><?php echo esc_html($set['id'] ?? ''); ?></code>
+                                <?php if ($type === 'pull') : ?>
+                                    <span title="PULL" aria-hidden="true" style="margin-left:8px; font-size:20px; color:#2e7d32;">←</span>
+                                <?php else : ?>
+                                    <span title="PUSH" aria-hidden="true" style="margin-left:8px; font-size:20px; color:#c62828;">→</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <button type="button" class="button button-secondary gires-open-detail" data-set-index="<?php echo (int) $index; ?>">Détails</button>
                                 <button type="button" class="button button-primary gires-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Lancer</button>
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Dry‑run</button>
                                 <button type="button" class="button gires-clean" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Nettoyer</button>
+                                <span class="gires-status" style="margin-left:10px;"></span>
+                                <div class="gires-progress" style="margin-top:6px; max-width:240px;">
+                                    <div class="gires-progress-bar" style="height:6px; background:#2271b1; width:0%;"></div>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -108,9 +125,13 @@ $is_gires_table = function ($table) {
                         <h3 class="hndle" style="padding:8px 12px;"><?php echo esc_html($set['name'] ?: ('set_' . $index)); ?></h3>
                         <div class="inside">
                             <table class="form-table">
-                                <tr>
+                                <tr class="gires-id-row">
                                     <th scope="row">ID</th>
-                                    <td><input type="text" name="replication_sets[<?php echo $index; ?>][id]" value="<?php echo esc_attr($set['id'] ?? ''); ?>" class="regular-text"></td>
+                                    <td>
+                                        <code><?php echo esc_html($set['id'] ?? ''); ?></code>
+                                        <input type="hidden" name="replication_sets[<?php echo $index; ?>][id]" value="<?php echo esc_attr($set['id'] ?? ''); ?>">
+                                        <p class="description">Slug généré automatiquement.</p>
+                                    </td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Nom</th>
@@ -212,11 +233,17 @@ $is_gires_table = function ($table) {
                 <div style="background:#fff; max-width:1000px; margin:4vh auto; padding:16px; border-radius:6px; max-height:88vh; overflow:auto;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h3 style="margin:0;">Détails du set</h3>
-                        <button type="button" class="button" id="gires-detail-close">Fermer</button>
+                        <div>
+                            <button type="submit" class="button button-primary" data-action="gires_cicd_save">Sauvegarder</button>
+                            <button type="button" class="button" id="gires-detail-close">Fermer</button>
+                        </div>
                     </div>
                     <div id="gires-detail-content" style="margin-top:12px;"></div>
                 </div>
             </div>
+            <style>
+                #gires-detail-modal .gires-id-row { display: none; }
+            </style>
         </form>
 
         <script type="text/template" id="gires-set-template">
@@ -224,7 +251,7 @@ $is_gires_table = function ($table) {
                 <h3 class="hndle" style="padding:8px 12px;">Nouveau set</h3>
                 <div class="inside">
                     <table class="form-table">
-                        <tr><th scope="row">ID</th><td><input type="text" name="replication_sets[__INDEX__][id]" class="regular-text"></td></tr>
+                        <tr class="gires-id-row"><th scope="row">ID</th><td><code>(auto)</code><input type="hidden" name="replication_sets[__INDEX__][id]" value=""></td></tr>
                         <tr><th scope="row">Nom</th><td><input type="text" name="replication_sets[__INDEX__][name]" class="regular-text"></td></tr>
                         <tr><th scope="row">Type</th><td><select name="replication_sets[__INDEX__][type]"><option value="pull">PULL</option><option value="push">PUSH</option></select></td></tr>
                         <tr><th scope="row">Search/Replace</th><td>
@@ -330,6 +357,8 @@ $is_gires_table = function ($table) {
                 var detailModal = document.getElementById('gires-detail-modal');
                 var detailClose = document.getElementById('gires-detail-close');
                 var detailContent = document.getElementById('gires-detail-content');
+                var detailOriginal = null;
+                var detailPlaceholder = null;
 
                 if (modalClose && modal) {
                     modalClose.addEventListener('click', function() {
@@ -344,17 +373,23 @@ $is_gires_table = function ($table) {
 
                 if (detailClose && detailModal) {
                     detailClose.addEventListener('click', function() {
-                        detailModal.style.display = 'none';
-                        if (detailContent) {
-                            detailContent.innerHTML = '';
+                        if (detailOriginal && detailPlaceholder && detailPlaceholder.parentNode) {
+                            detailPlaceholder.parentNode.insertBefore(detailOriginal, detailPlaceholder);
+                            detailPlaceholder.remove();
                         }
+                        detailOriginal = null;
+                        detailPlaceholder = null;
+                        detailModal.style.display = 'none';
                     });
                     detailModal.addEventListener('click', function(e) {
                         if (e.target === detailModal) {
-                            detailModal.style.display = 'none';
-                            if (detailContent) {
-                                detailContent.innerHTML = '';
+                            if (detailOriginal && detailPlaceholder && detailPlaceholder.parentNode) {
+                                detailPlaceholder.parentNode.insertBefore(detailOriginal, detailPlaceholder);
+                                detailPlaceholder.remove();
                             }
+                            detailOriginal = null;
+                            detailPlaceholder = null;
+                            detailModal.style.display = 'none';
                         }
                     });
                 }
@@ -413,6 +448,15 @@ $is_gires_table = function ($table) {
                     });
                 }
 
+                function findStatusElements(btn) {
+                    var container = btn.closest('.gires-actions') || btn.closest('td');
+                    if (!container) return { statusEl: null, barEl: null };
+                    return {
+                        statusEl: container.querySelector('.gires-status'),
+                        barEl: container.querySelector('.gires-progress-bar')
+                    };
+                }
+
                 function poll(statusEl, barEl) {
                     var form = new FormData();
                     form.append('action', 'gires_cicd_job_step');
@@ -440,10 +484,11 @@ $is_gires_table = function ($table) {
                             alert('Sauvegarde d’abord le set pour obtenir un ID.');
                             return;
                         }
-                        var statusEl = btn.closest('.gires-actions').querySelector('.gires-status');
-                        var barEl = btn.closest('.gires-actions').querySelector('.gires-progress-bar');
-                        statusEl.textContent = 'Démarrage...';
-                        barEl.style.width = '0%';
+                        var els = findStatusElements(btn);
+                        var statusEl = els.statusEl;
+                        var barEl = els.barEl;
+                        if (statusEl) statusEl.textContent = 'Démarrage...';
+                        if (barEl) barEl.style.width = '0%';
                         var form = new FormData();
                         form.append('action', 'gires_cicd_run_job');
                         form.append('_ajax_nonce', nonce);
@@ -455,10 +500,10 @@ $is_gires_table = function ($table) {
                             .then(r => r.json())
                             .then(function(data) {
                                 if (!data || !data.success) {
-                                    statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
+                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
                                     return;
                                 }
-                                statusEl.textContent = 'En cours...';
+                                if (statusEl) statusEl.textContent = 'En cours...';
                                 poll(statusEl, barEl);
                             });
                     });
@@ -471,7 +516,8 @@ $is_gires_table = function ($table) {
                             alert('Sauvegarde d’abord le set pour obtenir un ID.');
                             return;
                         }
-                        var statusEl = btn.closest('.gires-actions').querySelector('.gires-status');
+                        var els = findStatusElements(btn);
+                        var statusEl = els.statusEl;
                         var form = new FormData();
                         form.append('action', 'gires_cicd_cleanup');
                         form.append('_ajax_nonce', nonce);
@@ -480,10 +526,10 @@ $is_gires_table = function ($table) {
                             .then(r => r.json())
                             .then(function(data) {
                                 if (!data || !data.success) {
-                                    statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
+                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
                                     return;
                                 }
-                                statusEl.textContent = data.data.message || 'Nettoyage OK';
+                                if (statusEl) statusEl.textContent = data.data.message || 'Nettoyage OK';
                             });
                     });
                 }
@@ -498,12 +544,15 @@ $is_gires_table = function ($table) {
                         var card = container.querySelector('.gires-set[data-index="' + index + '"]');
                         if (!card || !detailModal || !detailContent) return;
                         detailContent.innerHTML = '';
-                        detailContent.appendChild(card.cloneNode(true));
+                        detailOriginal = card;
+                        detailPlaceholder = document.createComment('gires-set-placeholder');
+                        card.parentNode.insertBefore(detailPlaceholder, card);
+                        detailContent.appendChild(card);
                         detailModal.style.display = 'block';
-                        detailContent.querySelectorAll('.gires-run').forEach(function(b) { bindRun(b, false); });
-                        detailContent.querySelectorAll('.gires-dry-run').forEach(function(b) { bindRun(b, true); });
-                        detailContent.querySelectorAll('.gires-clean').forEach(bindClean);
-                        detailContent.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
+                        card.querySelectorAll('.gires-run').forEach(function(b) { bindRun(b, false); });
+                        card.querySelectorAll('.gires-dry-run').forEach(function(b) { bindRun(b, true); });
+                        card.querySelectorAll('.gires-clean').forEach(bindClean);
+                        card.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
                     });
                 });
 
@@ -595,6 +644,7 @@ $is_gires_table = function ($table) {
         <h2>Configuration</h2>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" id="gires-action" value="gires_cicd_save">
+            <input type="hidden" name="gires_tab" value="config">
             <?php wp_nonce_field('gires_cicd_save'); ?>
 
             <h2>Agent REST</h2>
@@ -608,6 +658,7 @@ $is_gires_table = function ($table) {
                     <td>
                         <input type="text" id="remote_url" name="remote_url" value="<?php echo esc_attr($settings['remote_url']); ?>" class="regular-text" placeholder="https://exemple.com">
                         <button type="submit" class="button button-primary" data-action="gires_cicd_connect" id="gires-connect-btn" style="margin-left:8px;">Tester connexion</button>
+                        <p class="description">À renseigner uniquement sur le site local (URL de la prod). Sur la prod, ce champ peut rester vide.</p>
                     </td>
                 </tr>
                 <tr>

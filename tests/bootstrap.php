@@ -35,4 +35,5 @@ function wp_mkdir_p($dir) {
 }
 
 require_once __DIR__ . '/../includes/Settings.php';
+require_once __DIR__ . '/../includes/Replication.php';
 require_once __DIR__ . '/../includes/Sync.php';

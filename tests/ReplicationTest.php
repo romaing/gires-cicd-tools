@@ -44,6 +44,22 @@ final class ReplicationTest extends TestCase {
         $this->assertTrue($result['success']);
         $this->assertFalse($this->wpdb->sawRename, 'rename should not be executed when skip_rename is true');
     }
+
+    public function testSplitSqlHandlesSemicolonsInStrings(): void {
+        $method = new ReflectionMethod(Replication::class, 'split_sql');
+        $method->setAccessible(true);
+        $sql = "INSERT INTO `wp_posts` VALUES ('a; b');\nSELECT 1;";
+        $statements = $method->invoke($this->replication, $sql);
+        $this->assertCount(2, $statements);
+    }
+
+    public function testApplySearchReplaceWithSerializedData(): void {
+        $method = new ReflectionMethod(Replication::class, 'apply_search_replace');
+        $method->setAccessible(true);
+        $data = serialize(['url' => 'http://old.local']);
+        $result = $method->invoke($this->replication, $data, ['http://old.local'], ['https://prod.example']);
+        $this->assertStringContainsString('https://prod.example', $result);
+    }
 }
 
 final class FakeWpdb {

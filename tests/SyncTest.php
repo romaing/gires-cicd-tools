@@ -48,6 +48,34 @@ final class SyncTest extends TestCase {
         $this->assertFileExists($extract . '/src/hello.txt');
     }
 
+    public function testSwapUploadsMovesFolders(): void {
+        $uploads = $this->uploadsDir . '/uploads';
+        $tmp = $this->uploadsDir . '/tmp_upload_test';
+        $bak = $this->uploadsDir . '/bak_upload_test';
+        mkdir($uploads, 0777, true);
+        mkdir($tmp, 0777, true);
+        file_put_contents($uploads . '/a.txt', 'live');
+        file_put_contents($tmp . '/b.txt', 'tmp');
+
+        $result = Sync::swap_uploads($tmp, $bak, $uploads);
+        $this->assertTrue($result['success']);
+        $this->assertFileExists($uploads . '/b.txt');
+        $this->assertFileExists($bak . '/a.txt');
+    }
+
+    public function testCleanupUploadsRemovesFolders(): void {
+        $tmp = $this->uploadsDir . '/tmp_upload_clean';
+        $bak = $this->uploadsDir . '/bak_upload_clean';
+        mkdir($tmp, 0777, true);
+        mkdir($bak, 0777, true);
+        file_put_contents($tmp . '/x.txt', 'x');
+        file_put_contents($bak . '/y.txt', 'y');
+
+        Sync::cleanup_uploads($tmp, $bak);
+        $this->assertDirectoryDoesNotExist($tmp);
+        $this->assertDirectoryDoesNotExist($bak);
+    }
+
     private function cleanupDir(string $dir): void {
         if (!is_dir($dir)) {
             return;

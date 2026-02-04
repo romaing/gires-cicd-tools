@@ -34,6 +34,38 @@ function wp_mkdir_p($dir) {
     return true;
 }
 
+if (!function_exists('sanitize_text_field')) {
+    function sanitize_text_field($value) {
+        return trim((string) $value);
+    }
+}
+
+if (!function_exists('sanitize_key')) {
+    function sanitize_key($value) {
+        $value = strtolower((string) $value);
+        $value = preg_replace('/[^a-z0-9_\\-]/', '', $value);
+        return $value ?? '';
+    }
+}
+
+if (!function_exists('sanitize_textarea_field')) {
+    function sanitize_textarea_field($value) {
+        return trim((string) $value);
+    }
+}
+
+if (!function_exists('esc_url_raw')) {
+    function esc_url_raw($value) {
+        return trim((string) $value);
+    }
+}
+
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+
 require_once __DIR__ . '/../includes/Settings.php';
+require_once __DIR__ . '/../includes/Migrations.php';
+require_once __DIR__ . '/../includes/Admin.php';
 require_once __DIR__ . '/../includes/Replication.php';
 require_once __DIR__ . '/../includes/Sync.php';

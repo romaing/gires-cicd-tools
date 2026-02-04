@@ -48,6 +48,40 @@ final class SyncTest extends TestCase {
         $this->assertFileExists($extract . '/src/hello.txt');
     }
 
+    public function testCreateMediaArchivesSkipsInternalDirs(): void {
+        if (!class_exists('ZipArchive')) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+        $gires = $this->uploadsDir . '/gires-cicd';
+        $tmp = $this->uploadsDir . '/tmp_upload';
+        $bak = $this->uploadsDir . '/bak_upload';
+        mkdir($gires, 0777, true);
+        mkdir($tmp, 0777, true);
+        mkdir($bak, 0777, true);
+        file_put_contents($gires . '/skip.txt', 'x');
+        file_put_contents($tmp . '/skip.txt', 'y');
+        file_put_contents($bak . '/skip.txt', 'z');
+
+        $public = $this->uploadsDir . '/public';
+        mkdir($public, 0777, true);
+        file_put_contents($public . '/keep.txt', 'ok');
+
+        $result = Sync::create_media_archives($this->uploadsDir, $gires, 5);
+        $this->assertTrue($result['success']);
+        $zip = new ZipArchive();
+        $zip->open($result['archives'][0]);
+        $names = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $names[] = $zip->getNameIndex($i);
+        }
+        $zip->close();
+
+        $this->assertContains('public/keep.txt', $names);
+        $this->assertNotContains('gires-cicd/skip.txt', $names);
+        $this->assertNotContains('tmp_upload/skip.txt', $names);
+        $this->assertNotContains('bak_upload/skip.txt', $names);
+    }
+
     public function testSwapUploadsMovesFolders(): void {
         $uploads = $this->uploadsDir . '/uploads';
         $tmp = $this->uploadsDir . '/tmp_upload_test';

@@ -1,0 +1,167 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: gires-cicd-tools 0.1.0\n"
+"POT-Creation-Date: 2026-02-08 00:00+0000\n"
+"Language: en_GB\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Nonce invalide"
+msgstr "Invalid nonce"
+
+msgid "Permission refusée"
+msgstr "Permission denied"
+
+msgid "Set introuvable"
+msgstr "Set not found"
+
+msgid "Job démarré"
+msgstr "Job started"
+
+msgid "Aucun job actif"
+msgstr "No active job"
+
+msgid "Arrêté"
+msgstr "Stopped"
+
+msgid "Nettoyage terminé"
+msgstr "Cleanup complete"
+
+msgid "Table manquante"
+msgstr "Missing table"
+
+msgid "Table inconnue"
+msgstr "Unknown table"
+
+msgid "Connexion impossible"
+msgstr "Connection failed"
+
+msgid "Terminé"
+msgstr "Done"
+
+msgid "Test à blanc: maintenance locale ignorée"
+msgstr "Dry run: local maintenance skipped"
+
+msgid "Maintenance locale activée"
+msgstr "Local maintenance enabled"
+
+msgid "Maintenance locale désactivée"
+msgstr "Local maintenance disabled"
+
+msgid "Test à blanc: maintenance distante ignorée"
+msgstr "Dry run: remote maintenance skipped"
+
+msgid "Maintenance distante activée"
+msgstr "Remote maintenance enabled"
+
+msgid "Maintenance distante désactivée"
+msgstr "Remote maintenance disabled"
+
+msgid "Export DB distant OK"
+msgstr "Remote DB export OK"
+
+msgid "Téléchargement SQL échoué"
+msgstr "SQL download failed"
+
+msgid "SQL téléchargé"
+msgstr "SQL downloaded"
+
+msgid "Import DB local OK"
+msgstr "Local DB import OK"
+
+msgid "Médias ignorés"
+msgstr "Media skipped"
+
+msgid "Export médias distant OK"
+msgstr "Remote media export OK"
+
+msgid "Téléchargement ZIP échoué"
+msgstr "ZIP download failed"
+
+msgid "ZIP médias %d/%d téléchargé"
+msgstr "Media ZIP %d/%d downloaded"
+
+msgid "Médias téléchargés"
+msgstr "Media downloaded"
+
+msgid "Test à blanc: swap local ignoré"
+msgstr "Dry run: local swap skipped"
+
+msgid "Swap local OK"
+msgstr "Local swap OK"
+
+msgid "Test à blanc: nettoyage local ignoré"
+msgstr "Dry run: local cleanup skipped"
+
+msgid "Nettoyage local OK"
+msgstr "Local cleanup OK"
+
+msgid "Nettoyage ignoré"
+msgstr "Cleanup skipped"
+
+msgid "Backup DB impossible"
+msgstr "DB backup failed"
+
+msgid "Téléchargement backup DB échoué"
+msgstr "DB backup download failed"
+
+msgid "Backup DB prod OK"
+msgstr "Production DB backup OK"
+
+msgid "Export DB local OK"
+msgstr "Local DB export OK"
+
+msgid "Import DB distant OK"
+msgstr "Remote DB import OK"
+
+msgid "Médias envoyés"
+msgstr "Media uploaded"
+
+msgid "Test à blanc: swap distant ignoré"
+msgstr "Dry run: remote swap skipped"
+
+msgid "Swap distant OK"
+msgstr "Remote swap OK"
+
+msgid "Test à blanc: nettoyage distant ignoré"
+msgstr "Dry run: remote cleanup skipped"
+
+msgid "Nettoyage distant OK"
+msgstr "Remote cleanup OK"
+
+msgid "Autorisation REST refusée. Vérifie l'activation REST, Token/HMAC, et l'IP autorisée sur la prod."
+msgstr "REST authorisation denied. Check REST enablement, Token/HMAC, and allowed IP on production."
+
+msgid "URL distante manquante"
+msgstr "Missing remote URL"
+
+msgid "Token/HMAC manquant"
+msgstr "Missing Token/HMAC"
+
+msgid "Réponse distante invalide"
+msgstr "Invalid remote response"
+
+msgid "Token ou HMAC manquant"
+msgstr "Missing Token or HMAC"
+
+msgid "Sauvegarde d’abord le set pour obtenir un ID."
+msgstr "Save the set first to get an ID."
+
+msgid "Erreur inconnue"
+msgstr "Unknown error"
+
+msgid "Démarrage..."
+msgstr "Starting..."
+
+msgid "Exécution en cours..."
+msgstr "Running..."
+
+msgid "Test à blanc en cours..."
+msgstr "Dry run in progress..."
+
+msgid "Nettoyage OK"
+msgstr "Cleanup OK"
+
+msgid "Table"
+msgstr "Table"

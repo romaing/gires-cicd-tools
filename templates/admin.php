@@ -17,7 +17,7 @@ $is_gires_table = function ($table) {
         $tab = 'sets';
     }
     ?>
-    <h1>CI/CD Tools</h1>
+    <h1>CI/CD Tools <small style="font-size:12px; color:#6c7075;">v<?php echo esc_html(defined('GIRES_CICD_VERSION') ? GIRES_CICD_VERSION : ''); ?></small></h1>
     <?php if ($tab === 'config') : ?>
         <div id="gires-conn-card" style="display:inline-flex; align-items:center; gap:12px; padding:14px 18px; background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08); margin:10px 0 6px;">
             <div id="gires-conn-icon" style="width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff; background:linear-gradient(180deg,#9aa0a6,#7d8288);">?</div>
@@ -91,8 +91,10 @@ $is_gires_table = function ($table) {
                                 <button type="button" class="button button-secondary gires-open-detail" data-set-index="<?php echo (int) $index; ?>">Détails</button>
                                 <button type="button" class="button button-primary gires-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Lancer</button>
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Dry‑run</button>
+                                <button type="button" class="button gires-stop" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Stop</button>
                                 <button type="button" class="button gires-clean" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Nettoyer</button>
                                 <span class="gires-status" style="margin-left:10px;"></span>
+                                <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
                                 <div class="gires-progress" style="margin-top:6px; max-width:240px;">
                                     <div class="gires-progress-bar" style="height:6px; background:#2271b1; width:0%;"></div>
                                 </div>
@@ -213,8 +215,10 @@ $is_gires_table = function ($table) {
                             <div class="gires-actions">
                                 <button type="button" class="button button-primary gires-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Lancer</button>
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Dry‑run</button>
+                                <button type="button" class="button gires-stop" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Stop</button>
                                 <button type="button" class="button gires-clean" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Nettoyer</button>
                                 <span class="gires-status" style="margin-left:10px;"></span>
+                                <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
                                 <div class="gires-progress" style="margin-top:8px; max-width:420px;">
                                     <div class="gires-progress-bar" style="height:8px; background:#2271b1; width:0%;"></div>
                                 </div>
@@ -292,15 +296,17 @@ $is_gires_table = function ($table) {
                             <?php endforeach; ?>
                         </td></tr>
                     </table>
-                    <div class="gires-actions">
-                        <button type="button" class="button button-primary gires-run" data-set-id="">Lancer</button>
-                        <button type="button" class="button button-secondary gires-dry-run" data-set-id="">Dry‑run</button>
-                        <button type="button" class="button gires-clean" data-set-id="">Nettoyer</button>
-                        <span class="gires-status" style="margin-left:10px;"></span>
-                        <div class="gires-progress" style="margin-top:8px; max-width:420px;">
-                            <div class="gires-progress-bar" style="height:8px; background:#2271b1; width:0%;"></div>
-                        </div>
-                    </div>
+                            <div class="gires-actions">
+                                <button type="button" class="button button-primary gires-run" data-set-id="">Lancer</button>
+                                <button type="button" class="button button-secondary gires-dry-run" data-set-id="">Dry‑run</button>
+                                <button type="button" class="button gires-stop" data-set-id="">Stop</button>
+                                <button type="button" class="button gires-clean" data-set-id="">Nettoyer</button>
+                                <span class="gires-status" style="margin-left:10px;"></span>
+                                <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
+                                <div class="gires-progress" style="margin-top:8px; max-width:420px;">
+                                    <div class="gires-progress-bar" style="height:8px; background:#2271b1; width:0%;"></div>
+                                </div>
+                            </div>
                 </div>
             </div>
         </script>
@@ -342,10 +348,24 @@ $is_gires_table = function ($table) {
             </div>
         </div>
 
+        <style>
+            .gires-active-run { box-shadow: 0 0 0 2px #2271b1 inset; }
+            .gires-active-dry { box-shadow: 0 0 0 2px #d9822b inset; }
+        </style>
         <script>
             (function() {
                 var ajaxUrl = '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
                 var nonce = '<?php echo esc_js(wp_create_nonce('gires_cicd_job')); ?>';
+                var i18n = {
+                    saveSet: '<?php echo esc_js(__('Sauvegarde d’abord le set pour obtenir un ID.', 'gires-cicd-tools')); ?>',
+                    errorUnknown: '<?php echo esc_js(__('Erreur inconnue', 'gires-cicd-tools')); ?>',
+                    starting: '<?php echo esc_js(__('Démarrage...', 'gires-cicd-tools')); ?>',
+                    running: '<?php echo esc_js(__('Exécution en cours...', 'gires-cicd-tools')); ?>',
+                    dryRunning: '<?php echo esc_js(__('Test à blanc en cours...', 'gires-cicd-tools')); ?>',
+                    stopped: '<?php echo esc_js(__('Arrêté', 'gires-cicd-tools')); ?>',
+                    cleanupOk: '<?php echo esc_js(__('Nettoyage OK', 'gires-cicd-tools')); ?>',
+                    tableLabel: '<?php echo esc_js(__('Table', 'gires-cicd-tools')); ?>'
+                };
                 var container = document.getElementById('gires-sets');
                 var addBtn = document.getElementById('gires-add-set');
                 var template = document.getElementById('gires-set-template');
@@ -443,6 +463,7 @@ $is_gires_table = function ($table) {
                         });
                         bindRun(div.querySelector('.gires-run'), false);
                         bindRun(div.querySelector('.gires-dry-run'), true);
+                        bindStop(div.querySelector('.gires-stop'));
                         bindClean(div.querySelector('.gires-clean'));
                         div.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
                     });
@@ -453,26 +474,54 @@ $is_gires_table = function ($table) {
                     if (!container) return { statusEl: null, barEl: null };
                     return {
                         statusEl: container.querySelector('.gires-status'),
-                        barEl: container.querySelector('.gires-progress-bar')
+                        barEl: container.querySelector('.gires-progress-bar'),
+                        textEl: container.querySelector('.gires-progress-text')
                     };
                 }
 
-                function poll(statusEl, barEl) {
+                function setButtonsState(container, running, mode) {
+                    if (!container) return;
+                    container.querySelectorAll('.gires-run, .gires-dry-run, .gires-clean').forEach(function(b) {
+                        b.disabled = running;
+                    });
+                    container.querySelectorAll('.gires-stop').forEach(function(b) {
+                        b.disabled = !running;
+                    });
+                    container.querySelectorAll('.gires-run, .gires-dry-run').forEach(function(b) {
+                        b.classList.remove('gires-active-run', 'gires-active-dry');
+                    });
+                    if (running) {
+                        var target = container.querySelector(mode === 'dry' ? '.gires-dry-run' : '.gires-run');
+                        if (target) {
+                            target.classList.add(mode === 'dry' ? 'gires-active-dry' : 'gires-active-run');
+                        }
+                    }
+                    var statusEl = container.querySelector('.gires-status');
+                    if (statusEl && mode) {
+                        statusEl.textContent = (mode === 'dry' ? i18n.dryRunning : i18n.running);
+                    }
+                }
+
+                function poll(statusEl, barEl, textEl) {
                     var form = new FormData();
                     form.append('action', 'gires_cicd_job_step');
                     form.append('_ajax_nonce', nonce);
-                    fetch(ajaxUrl, { method: 'POST', body: form })
+                    fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
                         .then(r => r.json())
                         .then(function(data) {
                             if (!data || !data.success) {
-                                statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
+                                statusEl.textContent = data && data.data ? data.data.message : i18n.errorUnknown;
                                 return;
                             }
                             var p = data.data.progress || 0;
                             barEl.style.width = p + '%';
+                            if (textEl) textEl.textContent = p + '%';
                             statusEl.textContent = data.data.message || '';
                             if (data.data.status === 'running') {
-                                setTimeout(function() { poll(statusEl, barEl); }, 1000);
+                                setTimeout(function() { poll(statusEl, barEl, textEl); }, 1000);
+                            } else {
+                                var container = statusEl ? (statusEl.closest('.gires-actions') || statusEl.closest('td')) : null;
+                                setButtonsState(container, false);
                             }
                         });
                 }
@@ -481,14 +530,18 @@ $is_gires_table = function ($table) {
                     btn.addEventListener('click', function() {
                         var setId = btn.getAttribute('data-set-id');
                         if (!setId) {
-                            alert('Sauvegarde d’abord le set pour obtenir un ID.');
+                            alert(i18n.saveSet);
                             return;
                         }
                         var els = findStatusElements(btn);
                         var statusEl = els.statusEl;
                         var barEl = els.barEl;
-                        if (statusEl) statusEl.textContent = 'Démarrage...';
+                        var textEl = els.textEl;
+                        var container = btn.closest('.gires-actions') || btn.closest('td');
+                        if (statusEl) statusEl.textContent = i18n.starting;
                         if (barEl) barEl.style.width = '0%';
+                        if (textEl) textEl.textContent = '0%';
+                        setButtonsState(container, true, dryRun ? 'dry' : 'run');
                         var form = new FormData();
                         form.append('action', 'gires_cicd_run_job');
                         form.append('_ajax_nonce', nonce);
@@ -496,15 +549,42 @@ $is_gires_table = function ($table) {
                         if (dryRun) {
                             form.append('dry_run', '1');
                         }
-                        fetch(ajaxUrl, { method: 'POST', body: form })
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
                             .then(r => r.json())
                             .then(function(data) {
                                 if (!data || !data.success) {
-                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
+                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : i18n.errorUnknown;
+                                    setButtonsState(container, false);
                                     return;
                                 }
-                                if (statusEl) statusEl.textContent = 'En cours...';
-                                poll(statusEl, barEl);
+                                if (statusEl) statusEl.textContent = dryRun ? i18n.dryRunning : i18n.running;
+                                poll(statusEl, barEl, textEl);
+                            });
+                    });
+                }
+
+                function bindStop(btn) {
+                    btn.addEventListener('click', function() {
+                        var els = findStatusElements(btn);
+                        var statusEl = els.statusEl;
+                        var barEl = els.barEl;
+                        var textEl = els.textEl;
+                        var container = btn.closest('.gires-actions') || btn.closest('td');
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_stop_job');
+                        form.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(r => r.json())
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : i18n.errorUnknown;
+                                    return;
+                                }
+                                var p = data.data.progress || 0;
+                                if (barEl) barEl.style.width = p + '%';
+                                if (textEl) textEl.textContent = p + '%';
+                                if (statusEl) statusEl.textContent = data.data.message || i18n.stopped;
+                                setButtonsState(container, false);
                             });
                     });
                 }
@@ -513,7 +593,7 @@ $is_gires_table = function ($table) {
                     btn.addEventListener('click', function() {
                         var setId = btn.getAttribute('data-set-id');
                         if (!setId) {
-                            alert('Sauvegarde d’abord le set pour obtenir un ID.');
+                            alert(i18n.saveSet);
                             return;
                         }
                         var els = findStatusElements(btn);
@@ -522,20 +602,21 @@ $is_gires_table = function ($table) {
                         form.append('action', 'gires_cicd_cleanup');
                         form.append('_ajax_nonce', nonce);
                         form.append('set_id', setId);
-                        fetch(ajaxUrl, { method: 'POST', body: form })
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
                             .then(r => r.json())
                             .then(function(data) {
                                 if (!data || !data.success) {
-                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : 'Erreur';
+                                    if (statusEl) statusEl.textContent = data && data.data ? data.data.message : i18n.errorUnknown;
                                     return;
                                 }
-                                if (statusEl) statusEl.textContent = data.data.message || 'Nettoyage OK';
+                                if (statusEl) statusEl.textContent = data.data.message || i18n.cleanupOk;
                             });
                     });
                 }
 
                 document.querySelectorAll('.gires-run').forEach(function(btn) { bindRun(btn, false); });
                 document.querySelectorAll('.gires-dry-run').forEach(function(btn) { bindRun(btn, true); });
+                document.querySelectorAll('.gires-stop').forEach(bindStop);
                 document.querySelectorAll('.gires-clean').forEach(bindClean);
 
                 document.querySelectorAll('.gires-open-detail').forEach(function(btn) {
@@ -551,6 +632,7 @@ $is_gires_table = function ($table) {
                         detailModal.style.display = 'block';
                         card.querySelectorAll('.gires-run').forEach(function(b) { bindRun(b, false); });
                         card.querySelectorAll('.gires-dry-run').forEach(function(b) { bindRun(b, true); });
+                        card.querySelectorAll('.gires-stop').forEach(bindStop);
                         card.querySelectorAll('.gires-clean').forEach(bindClean);
                         card.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
                     });
@@ -564,17 +646,17 @@ $is_gires_table = function ($table) {
                         form.append('action', 'gires_cicd_table_info');
                         form.append('_ajax_nonce', nonce);
                         form.append('table', table);
-                        fetch(ajaxUrl, { method: 'POST', body: form })
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
                             .then(r => r.json())
                             .then(function(data) {
                                 if (!data || !data.success) {
-                                    alert(data && data.data ? data.data.message : 'Erreur');
+                                    alert(data && data.data ? data.data.message : i18n.errorUnknown);
                                     return;
                                 }
                                 var schema = data.data.schema || [];
                                 var example = data.data.example || {};
                                 if (modalTitle) {
-                                    modalTitle.textContent = 'Table: ' + table;
+                                    modalTitle.textContent = i18n.tableLabel + ': ' + table;
                                 }
                                 if (schemaBody) {
                                     schemaBody.innerHTML = '';
@@ -768,7 +850,7 @@ $is_gires_table = function ($table) {
                     var form = new FormData();
                     form.append('action', 'gires_cicd_test_connection');
                     form.append('_ajax_nonce', '<?php echo esc_js(wp_create_nonce('gires_cicd_job')); ?>');
-                    fetch('<?php echo esc_js(admin_url('admin-ajax.php')); ?>', { method: 'POST', body: form })
+                    fetch('<?php echo esc_js(admin_url('admin-ajax.php')); ?>', { method: 'POST', body: form, credentials: 'same-origin' })
                         .then(r => r.json())
                         .then(function(data) {
                             if (!data || !data.success) {

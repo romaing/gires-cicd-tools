@@ -1,0 +1,167 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: gires-cicd-tools 0.1.0\n"
+"POT-Creation-Date: 2026-02-08 00:00+0000\n"
+"Language: fr_FR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Nonce invalide"
+msgstr "Nonce invalide"
+
+msgid "Permission refusée"
+msgstr "Permission refusée"
+
+msgid "Set introuvable"
+msgstr "Set introuvable"
+
+msgid "Job démarré"
+msgstr "Job démarré"
+
+msgid "Aucun job actif"
+msgstr "Aucun job actif"
+
+msgid "Arrêté"
+msgstr "Arrêté"
+
+msgid "Nettoyage terminé"
+msgstr "Nettoyage terminé"
+
+msgid "Table manquante"
+msgstr "Table manquante"
+
+msgid "Table inconnue"
+msgstr "Table inconnue"
+
+msgid "Connexion impossible"
+msgstr "Connexion impossible"
+
+msgid "Terminé"
+msgstr "Terminé"
+
+msgid "Test à blanc: maintenance locale ignorée"
+msgstr "Test à blanc: maintenance locale ignorée"
+
+msgid "Maintenance locale activée"
+msgstr "Maintenance locale activée"
+
+msgid "Maintenance locale désactivée"
+msgstr "Maintenance locale désactivée"
+
+msgid "Test à blanc: maintenance distante ignorée"
+msgstr "Test à blanc: maintenance distante ignorée"
+
+msgid "Maintenance distante activée"
+msgstr "Maintenance distante activée"
+
+msgid "Maintenance distante désactivée"
+msgstr "Maintenance distante désactivée"
+
+msgid "Export DB distant OK"
+msgstr "Export DB distant OK"
+
+msgid "Téléchargement SQL échoué"
+msgstr "Téléchargement SQL échoué"
+
+msgid "SQL téléchargé"
+msgstr "SQL téléchargé"
+
+msgid "Import DB local OK"
+msgstr "Import DB local OK"
+
+msgid "Médias ignorés"
+msgstr "Médias ignorés"
+
+msgid "Export médias distant OK"
+msgstr "Export médias distant OK"
+
+msgid "Téléchargement ZIP échoué"
+msgstr "Téléchargement ZIP échoué"
+
+msgid "ZIP médias %d/%d téléchargé"
+msgstr "ZIP médias %d/%d téléchargé"
+
+msgid "Médias téléchargés"
+msgstr "Médias téléchargés"
+
+msgid "Test à blanc: swap local ignoré"
+msgstr "Test à blanc: swap local ignoré"
+
+msgid "Swap local OK"
+msgstr "Swap local OK"
+
+msgid "Test à blanc: nettoyage local ignoré"
+msgstr "Test à blanc: nettoyage local ignoré"
+
+msgid "Nettoyage local OK"
+msgstr "Nettoyage local OK"
+
+msgid "Nettoyage ignoré"
+msgstr "Nettoyage ignoré"
+
+msgid "Backup DB impossible"
+msgstr "Backup DB impossible"
+
+msgid "Téléchargement backup DB échoué"
+msgstr "Téléchargement backup DB échoué"
+
+msgid "Backup DB prod OK"
+msgstr "Backup DB prod OK"
+
+msgid "Export DB local OK"
+msgstr "Export DB local OK"
+
+msgid "Import DB distant OK"
+msgstr "Import DB distant OK"
+
+msgid "Médias envoyés"
+msgstr "Médias envoyés"
+
+msgid "Test à blanc: swap distant ignoré"
+msgstr "Test à blanc: swap distant ignoré"
+
+msgid "Swap distant OK"
+msgstr "Swap distant OK"
+
+msgid "Test à blanc: nettoyage distant ignoré"
+msgstr "Test à blanc: nettoyage distant ignoré"
+
+msgid "Nettoyage distant OK"
+msgstr "Nettoyage distant OK"
+
+msgid "Autorisation REST refusée. Vérifie l'activation REST, Token/HMAC, et l'IP autorisée sur la prod."
+msgstr "Autorisation REST refusée. Vérifie l'activation REST, Token/HMAC, et l'IP autorisée sur la prod."
+
+msgid "URL distante manquante"
+msgstr "URL distante manquante"
+
+msgid "Token/HMAC manquant"
+msgstr "Token/HMAC manquant"
+
+msgid "Réponse distante invalide"
+msgstr "Réponse distante invalide"
+
+msgid "Token ou HMAC manquant"
+msgstr "Token ou HMAC manquant"
+
+msgid "Sauvegarde d’abord le set pour obtenir un ID."
+msgstr "Sauvegarde d’abord le set pour obtenir un ID."
+
+msgid "Erreur inconnue"
+msgstr "Erreur inconnue"
+
+msgid "Démarrage..."
+msgstr "Démarrage..."
+
+msgid "Exécution en cours..."
+msgstr "Exécution en cours..."
+
+msgid "Test à blanc en cours..."
+msgstr "Test à blanc en cours..."
+
+msgid "Nettoyage OK"
+msgstr "Nettoyage OK"
+
+msgid "Table"
+msgstr "Table"

@@ -95,6 +95,7 @@ class RestAgent {
         return rest_ensure_response([
             'status' => 'ok',
             'site_url' => site_url(),
+            'plugin_version' => defined('GIRES_CICD_VERSION') ? GIRES_CICD_VERSION : '',
             'migrations_path' => $this->settings->get('migrations_path'),
             'pending_count' => count($this->migrations->get_pending()),
             'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? '',

@@ -4,6 +4,8 @@
  * Description: Outils CI/CD (migrations globales + agent REST sécurisé).
  * Version: 0.1.0
  * Author: Gires Conseil Digital
+ * Text Domain: gires-cicd-tools
+ * Domain Path: /languages
  */
 
 if (!defined('ABSPATH')) {
@@ -34,6 +36,9 @@ function gires_cicd_init() {
 }
 
 add_action('plugins_loaded', 'gires_cicd_init');
+add_action('plugins_loaded', function () {
+    load_plugin_textdomain('gires-cicd-tools', false, dirname(plugin_basename(__FILE__)) . '/languages');
+});
 
 function gires_cicd_activate() {
     \GiresCICD\Settings::ensure_defaults();

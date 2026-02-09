@@ -1,0 +1,167 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: gires-cicd-tools 0.1.0\n"
+"POT-Creation-Date: 2026-02-08 00:00+0000\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Nonce invalide"
+msgstr ""
+
+msgid "Permission refusée"
+msgstr ""
+
+msgid "Set introuvable"
+msgstr ""
+
+msgid "Job démarré"
+msgstr ""
+
+msgid "Aucun job actif"
+msgstr ""
+
+msgid "Arrêté"
+msgstr ""
+
+msgid "Nettoyage terminé"
+msgstr ""
+
+msgid "Table manquante"
+msgstr ""
+
+msgid "Table inconnue"
+msgstr ""
+
+msgid "Connexion impossible"
+msgstr ""
+
+msgid "Terminé"
+msgstr ""
+
+msgid "Test à blanc: maintenance locale ignorée"
+msgstr ""
+
+msgid "Maintenance locale activée"
+msgstr ""
+
+msgid "Maintenance locale désactivée"
+msgstr ""
+
+msgid "Test à blanc: maintenance distante ignorée"
+msgstr ""
+
+msgid "Maintenance distante activée"
+msgstr ""
+
+msgid "Maintenance distante désactivée"
+msgstr ""
+
+msgid "Export DB distant OK"
+msgstr ""
+
+msgid "Téléchargement SQL échoué"
+msgstr ""
+
+msgid "SQL téléchargé"
+msgstr ""
+
+msgid "Import DB local OK"
+msgstr ""
+
+msgid "Médias ignorés"
+msgstr ""
+
+msgid "Export médias distant OK"
+msgstr ""
+
+msgid "Téléchargement ZIP échoué"
+msgstr ""
+
+msgid "ZIP médias %d/%d téléchargé"
+msgstr ""
+
+msgid "Médias téléchargés"
+msgstr ""
+
+msgid "Test à blanc: swap local ignoré"
+msgstr ""
+
+msgid "Swap local OK"
+msgstr ""
+
+msgid "Test à blanc: nettoyage local ignoré"
+msgstr ""
+
+msgid "Nettoyage local OK"
+msgstr ""
+
+msgid "Nettoyage ignoré"
+msgstr ""
+
+msgid "Backup DB impossible"
+msgstr ""
+
+msgid "Téléchargement backup DB échoué"
+msgstr ""
+
+msgid "Backup DB prod OK"
+msgstr ""
+
+msgid "Export DB local OK"
+msgstr ""
+
+msgid "Import DB distant OK"
+msgstr ""
+
+msgid "Médias envoyés"
+msgstr ""
+
+msgid "Test à blanc: swap distant ignoré"
+msgstr ""
+
+msgid "Swap distant OK"
+msgstr ""
+
+msgid "Test à blanc: nettoyage distant ignoré"
+msgstr ""
+
+msgid "Nettoyage distant OK"
+msgstr ""
+
+msgid "Autorisation REST refusée. Vérifie l'activation REST, Token/HMAC, et l'IP autorisée sur la prod."
+msgstr ""
+
+msgid "URL distante manquante"
+msgstr ""
+
+msgid "Token/HMAC manquant"
+msgstr ""
+
+msgid "Réponse distante invalide"
+msgstr ""
+
+msgid "Token ou HMAC manquant"
+msgstr ""
+
+msgid "Sauvegarde d’abord le set pour obtenir un ID."
+msgstr ""
+
+msgid "Erreur inconnue"
+msgstr ""
+
+msgid "Démarrage..."
+msgstr ""
+
+msgid "Exécution en cours..."
+msgstr ""
+
+msgid "Test à blanc en cours..."
+msgstr ""
+
+msgid "Nettoyage OK"
+msgstr ""
+
+msgid "Table"
+msgstr ""

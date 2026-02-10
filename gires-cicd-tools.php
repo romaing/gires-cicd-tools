@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Gires CI/CD Tools
  * Description: Outils CI/CD (migrations globales + agent REST sécurisé).
- * Version: 0.1.0
+ * Version: 0.1.1
  * Author: Gires Conseil Digital
  * Text Domain: gires-cicd-tools
  * Domain Path: /languages
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 
 define('GIRES_CICD_DIR', plugin_dir_path(__FILE__));
 define('GIRES_CICD_URL', plugin_dir_url(__FILE__));
-define('GIRES_CICD_VERSION', '0.1.0');
+define('GIRES_CICD_VERSION', '0.1.1');
 
 require_once GIRES_CICD_DIR . 'includes/Settings.php';
 require_once GIRES_CICD_DIR . 'includes/Migrations.php';

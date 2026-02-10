@@ -968,6 +968,15 @@ class Admin {
                     $message = __('Médias ignorés', 'gires-cicd-tools');
                     break;
                 }
+                $rsync_result = $this->pull_media_diff_from_remote($set);
+                if (!empty($rsync_result['success'])) {
+                    $job['context']['media_mode'] = 'rsync';
+                    $message = __('Médias préparés (différentiel)', 'gires-cicd-tools');
+                    break;
+                }
+                $this->log('media_export_remote: rsync fallback to zip', [
+                    'reason' => $rsync_result['message'] ?? '',
+                ]);
                 $payload = ['max_mb' => (int) ($set['media_chunk_mb'] ?? 512)];
                 $result = $this->remote_request('POST', '/wp-json/gires-cicd/v1/media/export', $payload);
                 if (!empty($result['token'])) {
@@ -979,6 +988,10 @@ class Admin {
             case 'media_download_remote':
                 if (empty($set['include_media'])) {
                     $message = __('Médias ignorés', 'gires-cicd-tools');
+                    break;
+                }
+                if (($job['context']['media_mode'] ?? '') === 'rsync') {
+                    $message = __('Médias téléchargés (différentiel)', 'gires-cicd-tools');
                     break;
                 }
                 $part = (int) ($job['context']['media_part'] ?? 1);
@@ -1389,6 +1402,77 @@ class Admin {
             escapeshellarg($rsync_ssh),
             escapeshellarg(rtrim($local_uploads, '/') . '/'),
             escapeshellarg($remote_target . ':' . rtrim($remote_tmp, '/') . '/'),
+        ]) . ' 2>&1';
+
+        $out = [];
+        $code = 0;
+        exec($rsync_cmd, $out, $code);
+        if ($code !== 0) {
+            return [
+                'success' => false,
+                'message' => trim(implode("\n", $out)) ?: __('Rsync médias différentiel échoué', 'gires-cicd-tools'),
+            ];
+        }
+
+        return ['success' => true];
+    }
+
+    private function pull_media_diff_from_remote(array $set): array {
+        if (!function_exists('exec')) {
+            return ['success' => false, 'message' => __('exec() indisponible', 'gires-cicd-tools')];
+        }
+        if (!$this->has_ssh_config()) {
+            return ['success' => false, 'message' => __('SSH non configuré pour sync médias différentielle.', 'gires-cicd-tools')];
+        }
+
+        $settings = $this->settings->get_all();
+        $host = trim((string) ($settings['ssh_host'] ?? ''));
+        $user = trim((string) ($settings['ssh_user'] ?? ''));
+        $path = rtrim((string) ($settings['ssh_path'] ?? ''), '/');
+        if ($host === '' || $user === '' || $path === '') {
+            return ['success' => false, 'message' => __('SSH incomplet pour sync médias différentielle.', 'gires-cicd-tools')];
+        }
+
+        $suffix = sanitize_key($set['id'] ?? 'local');
+        if ($suffix === '') {
+            $suffix = 'local';
+        }
+
+        $local_uploads = Sync::uploads_dir();
+        $local_tmp = Sync::tmp_uploads_dir($suffix);
+        $remote_uploads = $path . '/wp-content/uploads';
+        $remote_target = $user . '@' . $host;
+
+        // Seed local temp from live uploads to enable differential transfer
+        $seed_cmd = implode(' && ', [
+            'rm -rf ' . escapeshellarg($local_tmp),
+            'mkdir -p ' . escapeshellarg(dirname($local_tmp)),
+            'cp -a ' . escapeshellarg($local_uploads) . ' ' . escapeshellarg($local_tmp),
+        ]) . ' 2>&1';
+        $out = [];
+        $code = 0;
+        exec($seed_cmd, $out, $code);
+        if ($code !== 0) {
+            return [
+                'success' => false,
+                'message' => trim(implode("\n", $out)) ?: __('Préparation upload_tmp locale impossible', 'gires-cicd-tools'),
+            ];
+        }
+
+        $rsync_ssh = 'ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+        $rsync_cmd = implode(' ', [
+            'rsync',
+            '-az',
+            '--delete',
+            '--exclude=' . escapeshellarg('gires-cicd/'),
+            '--exclude=' . escapeshellarg('tmp_upload*/'),
+            '--exclude=' . escapeshellarg('bak_upload*/'),
+            '--exclude=' . escapeshellarg('upload_tmp*/'),
+            '--exclude=' . escapeshellarg('upload_bak*/'),
+            '-e',
+            escapeshellarg($rsync_ssh),
+            escapeshellarg($remote_target . ':' . rtrim($remote_uploads, '/') . '/'),
+            escapeshellarg(rtrim($local_tmp, '/') . '/'),
         ]) . ' 2>&1';
 
         $out = [];

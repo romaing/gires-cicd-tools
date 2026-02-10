@@ -1103,6 +1103,14 @@ class Admin {
                     $message = __('Médias ignorés', 'gires-cicd-tools');
                     break;
                 }
+                $rsync_result = $this->upload_media_diff_to_remote($set);
+                if (!empty($rsync_result['success'])) {
+                    $message = __('Médias envoyés (différentiel)', 'gires-cicd-tools');
+                    break;
+                }
+                $this->log('media_upload_remote: rsync fallback to zip', [
+                    'reason' => $rsync_result['message'] ?? '',
+                ]);
                 $uploads = Sync::uploads_dir();
                 $dest_dir = $uploads . '/gires-cicd';
                 $archives = Sync::create_media_archives($uploads, $dest_dir, (int) ($set['media_chunk_mb'] ?? 512));
@@ -1320,6 +1328,80 @@ class Admin {
 
         $this->log('disable_remote_maintenance_via_ssh: success');
         return true;
+    }
+
+    private function upload_media_diff_to_remote(array $set): array {
+        if (!function_exists('exec')) {
+            return ['success' => false, 'message' => __('exec() indisponible', 'gires-cicd-tools')];
+        }
+        if (!$this->has_ssh_config()) {
+            return ['success' => false, 'message' => __('SSH non configuré pour sync médias différentielle.', 'gires-cicd-tools')];
+        }
+
+        $settings = $this->settings->get_all();
+        $host = trim((string) ($settings['ssh_host'] ?? ''));
+        $user = trim((string) ($settings['ssh_user'] ?? ''));
+        $path = rtrim((string) ($settings['ssh_path'] ?? ''), '/');
+        if ($host === '' || $user === '' || $path === '') {
+            return ['success' => false, 'message' => __('SSH incomplet pour sync médias différentielle.', 'gires-cicd-tools')];
+        }
+
+        $suffix = sanitize_key($set['id'] ?? 'remote');
+        if ($suffix === '') {
+            $suffix = 'remote';
+        }
+
+        $local_uploads = Sync::uploads_dir();
+        $remote_uploads = $path . '/wp-content/uploads';
+        $remote_tmp = $path . '/wp-content/upload_tmp_' . $suffix;
+        $remote_target = $user . '@' . $host;
+
+        $prepare = implode(' && ', [
+            'mkdir -p ' . escapeshellarg($path . '/wp-content'),
+            'mkdir -p ' . escapeshellarg($remote_uploads),
+            'rm -rf ' . escapeshellarg($remote_tmp),
+            'cp -a ' . escapeshellarg($remote_uploads) . ' ' . escapeshellarg($remote_tmp),
+        ]);
+        $ssh_base = 'ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+        $prepare_cmd = $ssh_base . ' ' . escapeshellarg($remote_target) . ' ' . escapeshellarg($prepare) . ' 2>&1';
+
+        $out = [];
+        $code = 0;
+        exec($prepare_cmd, $out, $code);
+        if ($code !== 0) {
+            return [
+                'success' => false,
+                'message' => trim(implode("\n", $out)) ?: __('Préparation upload_tmp distante impossible', 'gires-cicd-tools'),
+            ];
+        }
+
+        $rsync_ssh = 'ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
+        $rsync_cmd = implode(' ', [
+            'rsync',
+            '-az',
+            '--delete',
+            '--exclude=' . escapeshellarg('gires-cicd/'),
+            '--exclude=' . escapeshellarg('tmp_upload*/'),
+            '--exclude=' . escapeshellarg('bak_upload*/'),
+            '--exclude=' . escapeshellarg('upload_tmp*/'),
+            '--exclude=' . escapeshellarg('upload_bak*/'),
+            '-e',
+            escapeshellarg($rsync_ssh),
+            escapeshellarg(rtrim($local_uploads, '/') . '/'),
+            escapeshellarg($remote_target . ':' . rtrim($remote_tmp, '/') . '/'),
+        ]) . ' 2>&1';
+
+        $out = [];
+        $code = 0;
+        exec($rsync_cmd, $out, $code);
+        if ($code !== 0) {
+            return [
+                'success' => false,
+                'message' => trim(implode("\n", $out)) ?: __('Rsync médias différentiel échoué', 'gires-cicd-tools'),
+            ];
+        }
+
+        return ['success' => true];
     }
 
     private function run_sync_script(string $type, bool $skip_db, bool $skip_uploads): array {

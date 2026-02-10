@@ -22,14 +22,14 @@ class Sync {
     }
 
     public static function tmp_uploads_dir($suffix = '') {
-        $base = self::uploads_dir();
-        $dir = $base . '/tmp_upload' . ($suffix ? '_' . $suffix : '');
+        $base = dirname(self::uploads_dir());
+        $dir = rtrim($base, '/') . '/upload_tmp' . ($suffix ? '_' . $suffix : '');
         return $dir;
     }
 
     public static function bak_uploads_dir($suffix = '') {
-        $base = self::uploads_dir();
-        $dir = $base . '/bak_upload' . ($suffix ? '_' . $suffix : '');
+        $base = dirname(self::uploads_dir());
+        $dir = rtrim($base, '/') . '/upload_bak' . ($suffix ? '_' . $suffix : '');
         return $dir;
     }
 

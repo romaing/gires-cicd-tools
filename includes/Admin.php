@@ -802,10 +802,8 @@ class Admin {
                 'db_export_local',
                 'db_import_remote',
                 'media_upload_remote',
-                'maintenance_on_remote',
                 'swap_remote',
                 'cleanup_remote',
-                'maintenance_off_remote',
             ]
             : [
                 'code_pull',

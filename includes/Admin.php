@@ -23,6 +23,10 @@ class Admin {
         add_action('wp_ajax_gires_cicd_run_job', [$this, 'ajax_run_job']);
         add_action('wp_ajax_gires_cicd_job_step', [$this, 'ajax_job_step']);
         add_action('wp_ajax_gires_cicd_stop_job', [$this, 'ajax_stop_job']);
+        add_action('wp_ajax_gires_cicd_tail_log', [$this, 'ajax_tail_log']);
+        add_action('wp_ajax_gires_cicd_generate_ssh_key', [$this, 'ajax_generate_ssh_key']);
+        add_action('wp_ajax_gires_cicd_download_ssh_key', [$this, 'ajax_download_ssh_key']);
+        add_action('wp_ajax_gires_cicd_test_ssh', [$this, 'ajax_test_ssh']);
         add_action('wp_ajax_gires_cicd_cleanup', [$this, 'ajax_cleanup']);
         add_action('wp_ajax_gires_cicd_table_info', [$this, 'ajax_table_info']);
         add_action('wp_ajax_gires_cicd_test_connection', [$this, 'ajax_test_connection']);
@@ -87,6 +91,15 @@ class Admin {
     }
 
     private function normalize_allowlist($value) {
+        if (is_array($value)) {
+            $items = array_filter(array_map('sanitize_text_field', $value));
+            return implode("\n", $items);
+        }
+
+        return sanitize_textarea_field((string) $value);
+    }
+
+    private function normalize_rsync_excludes($value) {
         if (is_array($value)) {
             $items = array_filter(array_map('sanitize_text_field', $value));
             return implode("\n", $items);
@@ -185,6 +198,12 @@ class Admin {
             exit;
         }
 
+        $compat = $this->ensure_remote_plugin_compatible($settings);
+        if (empty($compat['success'])) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sync&sync=0&message=' . rawurlencode($compat['message'] ?? __('Versions plugin incompatibles', 'gires-cicd-tools'))));
+            exit;
+        }
+
         if ($mode === 'pull') {
             $result = $this->pull_from_remote($remote, $settings, $set);
         } else {
@@ -259,10 +278,27 @@ class Admin {
             wp_send_json_error(['message' => __('Set introuvable', 'gires-cicd-tools')]);
         }
 
+        $settings = $this->settings->get_all();
+        $compat = $this->ensure_remote_plugin_compatible($settings);
+        if (empty($compat['success'])) {
+            $this->log('ajax_run_job: remote plugin version mismatch', [
+                'set_id' => $set_id,
+                'message' => $compat['message'] ?? '',
+            ]);
+            wp_send_json_error(['message' => $compat['message'] ?? __('Versions plugin incompatibles', 'gires-cicd-tools')]);
+        }
+
         $job = $this->create_job($set, $dry_run);
         update_option('gires_cicd_job', $job, false);
         $this->log('ajax_run_job: job created', ['job_id' => $job['id'] ?? '', 'type' => $job['type'] ?? '']);
-        wp_send_json_success(['job_id' => $job['id'], 'progress' => $job['progress'], 'message' => __('Job démarré', 'gires-cicd-tools')]);
+        wp_send_json_success([
+            'job_id' => $job['id'],
+            'progress' => $job['progress'],
+            'message' => __('Job démarré', 'gires-cicd-tools'),
+            'steps' => $job['steps'] ?? [],
+            'step_index' => $job['step_index'] ?? 0,
+            'status' => $job['status'] ?? 'running',
+        ]);
     }
 
     public function ajax_job_step() {
@@ -303,6 +339,8 @@ class Admin {
             'progress' => $result['job']['progress'],
             'status' => $result['job']['status'],
             'message' => $result['message'] ?? '',
+            'steps' => $result['job']['steps'] ?? [],
+            'step_index' => $result['job']['step_index'] ?? 0,
         ]);
     }
 
@@ -338,10 +376,167 @@ class Admin {
         $set = $job['set'] ?? [];
         $settings = $this->settings->get_all();
         if (!empty($settings['remote_url'])) {
-            $this->remote_request('POST', '/wp-json/gires-cicd/v1/maintenance', ['enabled' => false]);
+            $response = $this->remote_request('POST', '/wp-json/gires-cicd/v1/maintenance', ['enabled' => false]);
+            if (empty($response['success'])) {
+                $this->disable_remote_maintenance_via_ssh();
+            }
         }
 
         wp_send_json_success(['message' => __('Arrêté', 'gires-cicd-tools'), 'progress' => $job['progress']]);
+    }
+
+    public function ajax_tail_log() {
+        if (!check_ajax_referer('gires_cicd_job', '_ajax_nonce', false)) {
+            $this->log('ajax_tail_log: nonce invalid', [
+                'user_id' => get_current_user_id(),
+                'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            ]);
+            wp_send_json_error(['message' => __('Nonce invalide', 'gires-cicd-tools')]);
+        }
+        if (!current_user_can('manage_options')) {
+            $this->log('ajax_tail_log: permission denied', [
+                'user_id' => get_current_user_id(),
+                'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            ]);
+            wp_send_json_error(['message' => __('Permission refusée', 'gires-cicd-tools')]);
+        }
+
+        $lines = (int) ($_POST['lines'] ?? 200);
+        if ($lines < 1 || $lines > 2000) {
+            $lines = 200;
+        }
+
+        $log_path = $this->resolve_debug_log_path();
+        if (!$log_path || !is_file($log_path)) {
+            wp_send_json_error(['message' => __('debug.log introuvable', 'gires-cicd-tools')]);
+        }
+
+        $content = $this->tail_file($log_path, $lines, 'gires-cicd');
+        wp_send_json_success([
+            'lines' => $content,
+            'path' => $log_path,
+        ]);
+    }
+
+    public function ajax_generate_ssh_key() {
+        if (!check_ajax_referer('gires_cicd_job', '_ajax_nonce', false)) {
+            wp_send_json_error(['message' => __('Nonce invalide', 'gires-cicd-tools')]);
+        }
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission refusée', 'gires-cicd-tools')]);
+        }
+        $this->log('ajax_generate_ssh_key: start', [
+            'user_id' => get_current_user_id(),
+        ]);
+        $private = '';
+        $public = '';
+        $fallback = $this->generate_ssh_key_with_ssh_keygen();
+        if (!empty($fallback['private']) && !empty($fallback['public'])) {
+            $private = $fallback['private'];
+            $public = $fallback['public'];
+        } else {
+            $this->log('ajax_generate_ssh_key: failed', [
+                'reason' => 'ssh-keygen failed',
+            ]);
+            wp_send_json_error(['message' => __('Impossible de générer la clé (ssh-keygen).', 'gires-cicd-tools')]);
+        }
+        $token = bin2hex(random_bytes(16));
+        set_transient('gires_cicd_ssh_key_' . $token, [
+            'private' => $private,
+            'public' => $public,
+        ], 10 * MINUTE_IN_SECONDS);
+
+        $download_private = add_query_arg([
+            'action' => 'gires_cicd_download_ssh_key',
+            'token' => $token,
+            'type' => 'private',
+            '_ajax_nonce' => wp_create_nonce('gires_cicd_job'),
+        ], admin_url('admin-ajax.php'));
+        $download_public = add_query_arg([
+            'action' => 'gires_cicd_download_ssh_key',
+            'token' => $token,
+            'type' => 'public',
+            '_ajax_nonce' => wp_create_nonce('gires_cicd_job'),
+        ], admin_url('admin-ajax.php'));
+
+        $config_snippet = "Host ssh.cluster102.hosting.ovh.net\n  User gires\n  IdentityFile /path/to/gires_cicd\n  IdentitiesOnly yes\n";
+
+        wp_send_json_success([
+            'public_key' => $public,
+            'download_private' => $download_private,
+            'download_public' => $download_public,
+            'config_snippet' => $config_snippet,
+        ]);
+    }
+
+    public function ajax_download_ssh_key() {
+        if (!check_ajax_referer('gires_cicd_job', '_ajax_nonce', false)) {
+            wp_die(__('Nonce invalide', 'gires-cicd-tools'));
+        }
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Permission refusée', 'gires-cicd-tools'));
+        }
+        $token = sanitize_text_field($_GET['token'] ?? '');
+        if ($token === '') {
+            wp_die(__('Token manquant', 'gires-cicd-tools'));
+        }
+        $payload = get_transient('gires_cicd_ssh_key_' . $token);
+        if (!$payload || !is_array($payload)) {
+            wp_die(__('Clé expirée ou introuvable', 'gires-cicd-tools'));
+        }
+        $type = sanitize_text_field($_GET['type'] ?? 'private');
+        $content = $type === 'public' ? ($payload['public'] ?? '') : ($payload['private'] ?? '');
+        if ($content === '') {
+            wp_die(__('Clé expirée ou introuvable', 'gires-cicd-tools'));
+        }
+        if ($type === 'private') {
+            delete_transient('gires_cicd_ssh_key_' . $token);
+        }
+
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="gires_cicd' . ($type === 'public' ? '.pub' : '') . '"');
+        header('Content-Length: ' . strlen($content));
+        echo $content;
+        exit;
+    }
+
+    public function ajax_test_ssh() {
+        if (!check_ajax_referer('gires_cicd_job', '_ajax_nonce', false)) {
+            wp_send_json_error(['message' => __('Nonce invalide', 'gires-cicd-tools')]);
+        }
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission refusée', 'gires-cicd-tools')]);
+        }
+        if ($this->has_partial_ssh_config()) {
+            wp_send_json_error(['message' => __('SSH incomplet: renseigne host/user/path.', 'gires-cicd-tools')]);
+        }
+        if (!$this->has_ssh_config()) {
+            wp_send_json_error(['message' => __('SSH non configuré (host/user/path).', 'gires-cicd-tools')]);
+        }
+        if (!function_exists('exec')) {
+            wp_send_json_error(['message' => __('exec() indisponible', 'gires-cicd-tools')]);
+        }
+
+        $settings = $this->settings->get_all();
+        $host = $settings['ssh_host'];
+        $user = $settings['ssh_user'];
+        $cmd = sprintf(
+            'ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s@%s "echo OK"',
+            escapeshellarg($user),
+            escapeshellarg($host)
+        );
+        $out = [];
+        $code = 0;
+        exec($cmd . ' 2>&1', $out, $code);
+        $output = trim(implode("\n", $out));
+        if ($code !== 0) {
+            $this->log('ajax_test_ssh: failed', [
+                'code' => $code,
+                'output' => $output,
+            ]);
+            wp_send_json_error(['message' => $output ?: __('Connexion SSH impossible.', 'gires-cicd-tools')]);
+        }
+        wp_send_json_success(['message' => __('Connexion SSH OK.', 'gires-cicd-tools')]);
     }
 
     public function ajax_cleanup() {
@@ -458,6 +653,7 @@ class Admin {
             'search' => $set['search'] ?? [],
             'replace' => $set['replace'] ?? [],
             'search_only_tables' => $set['tables'] ?? [],
+            'insert_chunk_size' => 1,
         ]);
         $payload = wp_json_encode([
             'set_name' => $set['id'] ?? $set['name'],
@@ -528,6 +724,7 @@ class Admin {
             'db_user' => sanitize_text_field($request['db_user'] ?? ($current['db_user'] ?? '')),
             'db_pass' => sanitize_text_field($request['db_pass'] ?? ($current['db_pass'] ?? '')),
             'db_host' => sanitize_text_field($request['db_host'] ?? ($current['db_host'] ?? '')),
+            'rsync_excludes' => $this->normalize_rsync_excludes($request['rsync_excludes'] ?? ($current['rsync_excludes'] ?? '')),
             'replication_sets' => $this->normalize_replication_sets($request['replication_sets'] ?? ($current['replication_sets'] ?? [])),
         ];
     }
@@ -600,16 +797,18 @@ class Admin {
         $type = $set['type'] ?? 'pull';
         $steps = $type === 'push'
             ? [
+                'code_push',
                 'pre_pull_backup',
-                'maintenance_on_remote',
                 'db_export_local',
                 'db_import_remote',
                 'media_upload_remote',
+                'maintenance_on_remote',
                 'swap_remote',
                 'cleanup_remote',
                 'maintenance_off_remote',
             ]
             : [
+                'code_pull',
                 'maintenance_on_local',
                 'db_export_remote',
                 'db_download_remote',
@@ -656,6 +855,38 @@ class Admin {
         $result = ['success' => true];
 
         switch ($step) {
+            case 'code_push':
+                if ($dry_run) {
+                    $message = __('Test à blanc: sync code ignorée', 'gires-cicd-tools');
+                    break;
+                }
+                if ($this->has_partial_ssh_config()) {
+                    $result = ['success' => false, 'message' => __('SSH incomplet: renseigne host/user/path.', 'gires-cicd-tools')];
+                    break;
+                }
+                if (!$this->has_ssh_config()) {
+                    $message = __('Sync code ignorée: SSH non configuré', 'gires-cicd-tools');
+                    break;
+                }
+                $result = $this->run_sync_script('push', true, true);
+                $message = __('Sync code (WP + plugins + thèmes) OK', 'gires-cicd-tools');
+                break;
+            case 'code_pull':
+                if ($dry_run) {
+                    $message = __('Test à blanc: sync code ignorée', 'gires-cicd-tools');
+                    break;
+                }
+                if ($this->has_partial_ssh_config()) {
+                    $result = ['success' => false, 'message' => __('SSH incomplet: renseigne host/user/path.', 'gires-cicd-tools')];
+                    break;
+                }
+                if (!$this->has_ssh_config()) {
+                    $message = __('Sync code ignorée: SSH non configuré', 'gires-cicd-tools');
+                    break;
+                }
+                $result = $this->run_sync_script('pull', true, true);
+                $message = __('Sync code (WP + plugins + thèmes) OK', 'gires-cicd-tools');
+                break;
             case 'maintenance_on_local':
                 if ($dry_run) {
                     $message = __('Test à blanc: maintenance locale ignorée', 'gires-cicd-tools');
@@ -696,6 +927,7 @@ class Admin {
                     'search' => $set['search'] ?? [],
                     'replace' => $set['replace'] ?? [],
                     'search_only_tables' => $tables,
+                    'insert_chunk_size' => 1,
                 ];
                 $result = $this->remote_request('POST', '/wp-json/gires-cicd/v1/replication/export', $payload);
                 if (!empty($result['download_token'])) {
@@ -709,6 +941,7 @@ class Admin {
                 if ($sql === false) {
                     $result = ['success' => false, 'message' => __('Téléchargement SQL échoué', 'gires-cicd-tools')];
                 } else {
+                    $sql = $this->normalize_sql_payload($sql);
                     $dir = Sync::uploads_dir() . '/gires-cicd';
                     Sync::ensure_dir($dir);
                     $path = $dir . '/db_' . $job['id'] . '.sql';
@@ -837,6 +1070,7 @@ class Admin {
                     'search' => $set['search'] ?? [],
                     'replace' => $set['replace'] ?? [],
                     'search_only_tables' => $tables,
+                    'insert_chunk_size' => 1,
                 ];
                 $sql = $this->replication->export_sql($set, $override);
                 $dir = Sync::uploads_dir() . '/gires-cicd';
@@ -937,6 +1171,7 @@ class Admin {
         }
 
         if (empty($result['success']) && isset($result['message'])) {
+            $this->release_maintenance_on_error($job, $step);
             $this->log('run_next_step: error', [
                 'step' => $step,
                 'message' => $result['message'],
@@ -951,6 +1186,244 @@ class Admin {
         $job['status'] = $job['step_index'] >= count($steps) ? 'done' : 'running';
 
         return ['job' => $job, 'message' => $message];
+    }
+
+    private function release_maintenance_on_error(array $job, string $failed_step) {
+        $steps = $job['steps'] ?? [];
+        $index = (int) ($job['step_index'] ?? 0);
+        $type = $job['type'] ?? '';
+
+        if ($type === 'push') {
+            $maintenance_index = array_search('maintenance_on_remote', $steps, true);
+            if ($maintenance_index !== false && $index >= $maintenance_index) {
+                $response = $this->remote_request('POST', '/wp-json/gires-cicd/v1/maintenance', ['enabled' => false]);
+                if (empty($response['success'])) {
+                    $this->disable_remote_maintenance_via_ssh();
+                }
+                $this->log('release_maintenance_on_error: remote off', [
+                    'failed_step' => $failed_step,
+                    'job_id' => $job['id'] ?? '',
+                ]);
+            }
+            return;
+        }
+
+        if ($type === 'pull') {
+            $maintenance_index = array_search('maintenance_on_local', $steps, true);
+            if ($maintenance_index !== false && $index >= $maintenance_index) {
+                Sync::set_maintenance(false);
+                $this->log('release_maintenance_on_error: local off', [
+                    'failed_step' => $failed_step,
+                    'job_id' => $job['id'] ?? '',
+                ]);
+            }
+        }
+    }
+
+    private function resolve_debug_log_path() {
+        if (defined('WP_DEBUG_LOG')) {
+            if (is_string(WP_DEBUG_LOG) && WP_DEBUG_LOG !== '') {
+                return WP_DEBUG_LOG;
+            }
+            if (WP_DEBUG_LOG === true && defined('WP_CONTENT_DIR')) {
+                return WP_CONTENT_DIR . '/debug.log';
+            }
+        }
+        if (defined('WP_CONTENT_DIR')) {
+            return WP_CONTENT_DIR . '/debug.log';
+        }
+        return '';
+    }
+
+    private function normalize_sql_payload($sql) {
+        if (!is_string($sql) || $sql === '') {
+            return (string) $sql;
+        }
+        $decoded = json_decode($sql, true);
+        if (is_string($decoded)) {
+            return $decoded;
+        }
+        return $sql;
+    }
+
+    private function generate_ssh_key_with_ssh_keygen(): array {
+        if (!function_exists('shell_exec')) {
+            return [];
+        }
+        $tmp = rtrim(sys_get_temp_dir(), '/') . '/gires_cicd_ssh_' . bin2hex(random_bytes(4));
+        $priv = $tmp;
+        $pub = $tmp . '.pub';
+        $cmd = 'ssh-keygen -t ed25519 -C "gires-cicd" -f ' . escapeshellarg($priv) . ' -N ""';
+        $out = shell_exec($cmd . ' 2>&1');
+        if (!is_file($priv) || !is_file($pub)) {
+            if (is_file($priv)) @unlink($priv);
+            if (is_file($pub)) @unlink($pub);
+            return [];
+        }
+        $private = file_get_contents($priv) ?: '';
+        $public = trim((string) file_get_contents($pub));
+        @unlink($priv);
+        @unlink($pub);
+        return ['private' => $private, 'public' => $public, 'output' => $out];
+    }
+    private function has_ssh_config(): bool {
+        $settings = $this->settings->get_all();
+        return !empty($settings['ssh_host']) && !empty($settings['ssh_user']) && !empty($settings['ssh_path']);
+    }
+
+    private function has_partial_ssh_config(): bool {
+        $settings = $this->settings->get_all();
+        $values = [
+            trim((string) ($settings['ssh_host'] ?? '')),
+            trim((string) ($settings['ssh_user'] ?? '')),
+            trim((string) ($settings['ssh_path'] ?? '')),
+        ];
+        $filled = array_filter($values, function ($v) {
+            return $v !== '';
+        });
+        return !empty($filled) && count($filled) < count($values);
+    }
+
+    private function disable_remote_maintenance_via_ssh() {
+        if (!function_exists('exec')) {
+            $this->log('disable_remote_maintenance_via_ssh: exec unavailable');
+            return false;
+        }
+        if (!$this->has_ssh_config()) {
+            $this->log('disable_remote_maintenance_via_ssh: ssh not configured');
+            return false;
+        }
+
+        $settings = $this->settings->get_all();
+        $host = $settings['ssh_host'];
+        $user = $settings['ssh_user'];
+        $path = rtrim((string) $settings['ssh_path'], '/');
+        $target = $path . '/.maintenance';
+
+        $cmd = sprintf(
+            'ssh -o BatchMode=yes -o ConnectTimeout=12 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null %s@%s %s 2>&1',
+            escapeshellarg($user),
+            escapeshellarg($host),
+            escapeshellarg('rm -f ' . $target)
+        );
+
+        $out = [];
+        $code = 0;
+        exec($cmd, $out, $code);
+        if ($code !== 0) {
+            $this->log('disable_remote_maintenance_via_ssh: failed', [
+                'code' => $code,
+                'output' => trim(implode("\n", $out)),
+            ]);
+            return false;
+        }
+
+        $this->log('disable_remote_maintenance_via_ssh: success');
+        return true;
+    }
+
+    private function run_sync_script(string $type, bool $skip_db, bool $skip_uploads): array {
+        if (!function_exists('exec')) {
+            return ['success' => false, 'message' => __('exec() indisponible', 'gires-cicd-tools')];
+        }
+
+        $settings = $this->settings->get_all();
+        if (empty($settings['ssh_host']) || empty($settings['ssh_user']) || empty($settings['ssh_path'])) {
+            return ['success' => false, 'message' => __('SSH non configuré (host/user/path).', 'gires-cicd-tools')];
+        }
+
+        $scripts = new Scripts($this->settings);
+        if (!$scripts->generate(true, true)) {
+            return ['success' => false, 'message' => __('Impossible de générer les scripts.', 'gires-cicd-tools')];
+        }
+
+        $script_path = ABSPATH . 'scripts/sync_' . $type . '.sh';
+        if (!is_file($script_path)) {
+            return ['success' => false, 'message' => __('Script introuvable.', 'gires-cicd-tools')];
+        }
+
+        $env = [
+            'SYNC_HOST' => $settings['ssh_host'],
+            'SYNC_USER' => $settings['ssh_user'],
+            'SYNC_PATH' => $settings['ssh_path'],
+        ];
+        if (!$skip_db) {
+            $env['DB_NAME'] = $settings['db_name'] ?? '';
+            $env['DB_USER'] = $settings['db_user'] ?? '';
+            $env['DB_PASS'] = $settings['db_pass'] ?? '';
+            $env['DB_HOST'] = $settings['db_host'] ?? 'localhost';
+        }
+
+        $prefix = '';
+        foreach ($env as $key => $value) {
+            $prefix .= $key . '=' . escapeshellarg((string) $value) . ' ';
+        }
+        if ($skip_db) {
+            $prefix .= 'SKIP_DB=1 ';
+        }
+        if ($skip_uploads) {
+            $prefix .= 'SKIP_UPLOADS=1 ';
+        }
+
+        $cmd = $prefix . '/bin/bash ' . escapeshellarg($script_path) . ' 2>&1';
+        $output = [];
+        $code = 0;
+        exec($cmd, $output, $code);
+        $out = trim(implode("\n", $output));
+        if ($code !== 0) {
+            $this->log('run_sync_script: failed', [
+                'type' => $type,
+                'code' => $code,
+                'output' => $out,
+            ]);
+            return ['success' => false, 'message' => $out ?: __('Erreur script sync', 'gires-cicd-tools')];
+        }
+        if ($out !== '') {
+            $this->log('run_sync_script: output', [
+                'type' => $type,
+                'output' => $out,
+            ]);
+        }
+        return ['success' => true, 'message' => __('Sync code OK', 'gires-cicd-tools')];
+    }
+
+    private function tail_file(string $path, int $lines, string $filter = ''): string {
+        $fp = @fopen($path, 'rb');
+        if (!$fp) {
+            return '';
+        }
+
+        $buffer = '';
+        $chunk = 4096;
+        $pos = -1;
+        $line_count = 0;
+        $stat = fstat($fp);
+        $size = $stat['size'] ?? 0;
+
+        while ($size > 0 && $line_count <= $lines) {
+            $read_size = min($chunk, $size);
+            $size -= $read_size;
+            fseek($fp, $size);
+            $data = fread($fp, $read_size);
+            if ($data === false) {
+                break;
+            }
+            $buffer = $data . $buffer;
+            $line_count = substr_count($buffer, "\n");
+        }
+        fclose($fp);
+
+        $all = preg_split("/\r?\n/", trim($buffer));
+        if (!is_array($all)) {
+            return '';
+        }
+        $all = array_slice($all, -$lines);
+        if ($filter !== '') {
+            $all = array_values(array_filter($all, function ($line) use ($filter) {
+                return stripos($line, $filter) !== false;
+            }));
+        }
+        return implode("\n", $all);
     }
 
     private function get_selected_tables(array $set) {
@@ -1082,36 +1555,24 @@ class Admin {
     }
 
     private function test_remote_connection(array $settings) {
-        $remote = rtrim($settings['remote_url'] ?? '', '/');
-        if (empty($remote)) {
+        $status = $this->fetch_remote_status($settings);
+        if (empty($status['success'])) {
             $settings['rest_last_connection_ok'] = false;
             $this->settings->update($settings);
-            return ['success' => false, 'message' => __('URL distante manquante', 'gires-cicd-tools')];
+            return ['success' => false, 'message' => $status['message'] ?? __('Connexion impossible', 'gires-cicd-tools')];
         }
 
-        if (empty($settings['rest_token']) || empty($settings['rest_hmac_secret'])) {
-            $settings['rest_last_connection_ok'] = false;
-            $this->settings->update($settings);
-            return ['success' => false, 'message' => 'Token ou HMAC manquant'];
-        }
-
-        $endpoint = $remote . '/wp-json/gires-cicd/v1/status';
-        $response = $this->signed_request('GET', $endpoint, '', $settings);
-        if (is_wp_error($response)) {
-            $settings['rest_last_connection_ok'] = false;
-            $this->settings->update($settings);
-            return ['success' => false, 'message' => $response->get_error_message()];
-        }
-
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $body = $status['body'] ?? [];
         $remote_ip = $body['remote_ip'] ?? '';
         $remote_site = $body['site_url'] ?? '';
         $remote_pending = (int) ($body['pending_count'] ?? 0);
+        $remote_plugin_version = (string) ($body['plugin_version'] ?? '');
 
         $settings['rest_last_connection_ok'] = true;
         $settings['remote_ip'] = $remote_ip;
         $settings['remote_site_url'] = $remote_site;
         $settings['remote_pending_count'] = $remote_pending;
+        $settings['remote_plugin_version'] = $remote_plugin_version;
         $this->settings->update($settings);
 
         return [
@@ -1119,6 +1580,57 @@ class Admin {
             'remote_ip' => $remote_ip,
             'remote_site_url' => $remote_site,
             'remote_pending_count' => $remote_pending,
+            'remote_plugin_version' => $remote_plugin_version,
+            'local_plugin_version' => defined('GIRES_CICD_VERSION') ? GIRES_CICD_VERSION : '',
         ];
+    }
+
+    private function ensure_remote_plugin_compatible(array $settings) {
+        $status = $this->fetch_remote_status($settings);
+        if (empty($status['success'])) {
+            return ['success' => false, 'message' => $status['message'] ?? __('Connexion distante impossible', 'gires-cicd-tools')];
+        }
+
+        $body = $status['body'] ?? [];
+        $remote_version = (string) ($body['plugin_version'] ?? '');
+        $local_version = defined('GIRES_CICD_VERSION') ? (string) GIRES_CICD_VERSION : '';
+
+        if ($remote_version === '' || $local_version === '') {
+            return ['success' => false, 'message' => __('Version plugin introuvable (locale ou distante).', 'gires-cicd-tools')];
+        }
+        if ($remote_version !== $local_version) {
+            return [
+                'success' => false,
+                'message' => sprintf(
+                    __('Version plugin differente. Local: %1$s / Distant: %2$s. Mets la meme version des deux cotes.', 'gires-cicd-tools'),
+                    $local_version,
+                    $remote_version
+                ),
+            ];
+        }
+        return ['success' => true];
+    }
+
+    private function fetch_remote_status(array $settings) {
+        $remote = rtrim($settings['remote_url'] ?? '', '/');
+        if (empty($remote)) {
+            return ['success' => false, 'message' => __('URL distante manquante', 'gires-cicd-tools')];
+        }
+        if (empty($settings['rest_token']) || empty($settings['rest_hmac_secret'])) {
+            return ['success' => false, 'message' => __('Token ou HMAC manquant', 'gires-cicd-tools')];
+        }
+
+        $endpoint = $remote . '/wp-json/gires-cicd/v1/status';
+        $response = $this->signed_request('GET', $endpoint, '', $settings);
+        if (is_wp_error($response)) {
+            return ['success' => false, 'message' => $response->get_error_message()];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($body)) {
+            return ['success' => false, 'message' => __('Reponse status distante invalide', 'gires-cicd-tools')];
+        }
+
+        return ['success' => true, 'body' => $body];
     }
 }

@@ -22,8 +22,15 @@ $is_gires_table = function ($table) {
         <div id="gires-conn-card" style="display:inline-flex; align-items:center; gap:12px; padding:14px 18px; background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08); margin:10px 0 6px;">
             <div id="gires-conn-icon" style="width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff; background:linear-gradient(180deg,#9aa0a6,#7d8288);">?</div>
             <div>
-                <div id="gires-conn-title" style="font-weight:600; letter-spacing:1px; color:#5f6368;">CONNEXION</div>
+                <div id="gires-conn-title" style="font-weight:600; letter-spacing:1px; color:#5f6368;">REST</div>
                 <div id="gires-conn-status" style="font-size:12px; color:#9aa0a6;">En attente</div>
+            </div>
+        </div>
+        <div id="gires-ssh-card" style="display:inline-flex; align-items:center; gap:12px; padding:14px 18px; background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08); margin:10px 0 6px;">
+            <div id="gires-ssh-icon" style="width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff; background:linear-gradient(180deg,#9aa0a6,#7d8288);">?</div>
+            <div>
+                <div id="gires-ssh-title" style="font-weight:600; letter-spacing:1px; color:#5f6368;">SSH</div>
+                <div id="gires-ssh-status" style="font-size:12px; color:#9aa0a6;">En attente</div>
             </div>
         </div>
     <?php endif; ?>
@@ -93,11 +100,13 @@ $is_gires_table = function ($table) {
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Dry‑run</button>
                                 <button type="button" class="button gires-stop" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Stop</button>
                                 <button type="button" class="button gires-clean" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Nettoyer</button>
+                                <button type="button" class="button gires-logs" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Logs</button>
                                 <span class="gires-status" style="margin-left:10px;"></span>
                                 <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
                                 <div class="gires-progress" style="margin-top:6px; max-width:240px;">
                                     <div class="gires-progress-bar" style="height:6px; background:#2271b1; width:0%;"></div>
                                 </div>
+                                <div class="gires-steps"></div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -217,11 +226,13 @@ $is_gires_table = function ($table) {
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Dry‑run</button>
                                 <button type="button" class="button gires-stop" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Stop</button>
                                 <button type="button" class="button gires-clean" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Nettoyer</button>
+                                <button type="button" class="button gires-logs" data-set-id="<?php echo esc_attr($set['id'] ?? ''); ?>">Logs</button>
                                 <span class="gires-status" style="margin-left:10px;"></span>
                                 <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
                                 <div class="gires-progress" style="margin-top:8px; max-width:420px;">
                                     <div class="gires-progress-bar" style="height:8px; background:#2271b1; width:0%;"></div>
                                 </div>
+                                <div class="gires-steps"></div>
                             </div>
                         </div>
                     </div>
@@ -301,11 +312,13 @@ $is_gires_table = function ($table) {
                                 <button type="button" class="button button-secondary gires-dry-run" data-set-id="">Dry‑run</button>
                                 <button type="button" class="button gires-stop" data-set-id="">Stop</button>
                                 <button type="button" class="button gires-clean" data-set-id="">Nettoyer</button>
+                                <button type="button" class="button gires-logs" data-set-id="">Logs</button>
                                 <span class="gires-status" style="margin-left:10px;"></span>
                                 <span class="gires-progress-text" style="margin-left:6px; color:#6c7075;"></span>
                                 <div class="gires-progress" style="margin-top:8px; max-width:420px;">
                                     <div class="gires-progress-bar" style="height:8px; background:#2271b1; width:0%;"></div>
                                 </div>
+                                <div class="gires-steps"></div>
                             </div>
                 </div>
             </div>
@@ -348,9 +361,26 @@ $is_gires_table = function ($table) {
             </div>
         </div>
 
+        <div id="gires-log-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9999;">
+            <div style="background:#fff; max-width:1000px; margin:6vh auto; padding:16px; border-radius:6px; max-height:80vh; overflow:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0;">Logs</h3>
+                    <button type="button" class="button" id="gires-log-close">Fermer</button>
+                </div>
+                <p class="description" id="gires-log-path" style="margin-top:6px;"></p>
+                <pre id="gires-log-content" style="white-space:pre-wrap; background:#f6f7f7; padding:12px; border-radius:6px; max-height:60vh; overflow:auto;"></pre>
+            </div>
+        </div>
+
         <style>
             .gires-active-run { box-shadow: 0 0 0 2px #2271b1 inset; }
             .gires-active-dry { box-shadow: 0 0 0 2px #d9822b inset; }
+            .gires-steps { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px 10px; font-size:12px; color:#5f6368; }
+            .gires-step { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#f1f3f4; }
+            .gires-step--done { background:#e6f4ea; color:#1e8e3e; }
+            .gires-step--current { background:#e8f0fe; color:#1a73e8; }
+            .gires-step--error { background:#fce8e6; color:#d93025; }
+            .gires-step__icon { font-weight:700; }
         </style>
         <script>
             (function() {
@@ -364,7 +394,35 @@ $is_gires_table = function ($table) {
                     dryRunning: '<?php echo esc_js(__('Test à blanc en cours...', 'gires-cicd-tools')); ?>',
                     stopped: '<?php echo esc_js(__('Arrêté', 'gires-cicd-tools')); ?>',
                     cleanupOk: '<?php echo esc_js(__('Nettoyage OK', 'gires-cicd-tools')); ?>',
-                    tableLabel: '<?php echo esc_js(__('Table', 'gires-cicd-tools')); ?>'
+                    tableLabel: '<?php echo esc_js(__('Table', 'gires-cicd-tools')); ?>',
+                    logLoading: '<?php echo esc_js(__('Chargement des logs...', 'gires-cicd-tools')); ?>',
+                    logEmpty: '<?php echo esc_js(__('Aucun log gires-cicd trouvé.', 'gires-cicd-tools')); ?>',
+                    logError: '<?php echo esc_js(__('Impossible de lire le log.', 'gires-cicd-tools')); ?>',
+                    sshGenOk: '<?php echo esc_js(__('Clé générée.', 'gires-cicd-tools')); ?>',
+                    sshGenError: '<?php echo esc_js(__('Impossible de générer la clé.', 'gires-cicd-tools')); ?>',
+                    sshOk: '<?php echo esc_js(__('Connexion SSH OK.', 'gires-cicd-tools')); ?>',
+                    sshError: '<?php echo esc_js(__('Connexion SSH impossible.', 'gires-cicd-tools')); ?>',
+                    stepLabels: <?php echo wp_json_encode([
+                        'code_push' => __('Sync code vers prod', 'gires-cicd-tools'),
+                        'code_pull' => __('Sync code vers local', 'gires-cicd-tools'),
+                        'pre_pull_backup' => __('Sauvegarde distante', 'gires-cicd-tools'),
+                        'maintenance_on_remote' => __('Maintenance distante activée', 'gires-cicd-tools'),
+                        'db_export_local' => __('Export DB locale', 'gires-cicd-tools'),
+                        'db_import_remote' => __('Import DB distant', 'gires-cicd-tools'),
+                        'media_upload_remote' => __('Upload médias distant', 'gires-cicd-tools'),
+                        'swap_remote' => __('Activation distante', 'gires-cicd-tools'),
+                        'cleanup_remote' => __('Nettoyage distant', 'gires-cicd-tools'),
+                        'maintenance_off_remote' => __('Maintenance distante désactivée', 'gires-cicd-tools'),
+                        'maintenance_on_local' => __('Maintenance locale activée', 'gires-cicd-tools'),
+                        'db_export_remote' => __('Export DB distant', 'gires-cicd-tools'),
+                        'db_download_remote' => __('Téléchargement DB', 'gires-cicd-tools'),
+                        'db_import_local' => __('Import DB local', 'gires-cicd-tools'),
+                        'media_export_remote' => __('Export médias distant', 'gires-cicd-tools'),
+                        'media_download_remote' => __('Téléchargement médias', 'gires-cicd-tools'),
+                        'swap_local' => __('Activation locale', 'gires-cicd-tools'),
+                        'cleanup_local' => __('Nettoyage local', 'gires-cicd-tools'),
+                        'maintenance_off_local' => __('Maintenance locale désactivée', 'gires-cicd-tools'),
+                    ]); ?>
                 };
                 var container = document.getElementById('gires-sets');
                 var addBtn = document.getElementById('gires-add-set');
@@ -379,6 +437,18 @@ $is_gires_table = function ($table) {
                 var detailContent = document.getElementById('gires-detail-content');
                 var detailOriginal = null;
                 var detailPlaceholder = null;
+                var logModal = document.getElementById('gires-log-modal');
+                var logClose = document.getElementById('gires-log-close');
+                var logContent = document.getElementById('gires-log-content');
+                var logPath = document.getElementById('gires-log-path');
+                var genSshBtn = document.getElementById('gires-gen-ssh');
+                var genSshStatus = document.getElementById('gires-gen-ssh-status');
+                var sshPublic = document.getElementById('gires-ssh-public');
+                var sshConfig = document.getElementById('gires-ssh-config');
+                var sshDownload = document.getElementById('gires-ssh-download');
+                var sshDownloadPub = document.getElementById('gires-ssh-download-pub');
+                var testSshBtn = document.getElementById('gires-test-ssh');
+                var testSshStatus = document.getElementById('gires-test-ssh-status');
 
                 if (modalClose && modal) {
                     modalClose.addEventListener('click', function() {
@@ -411,6 +481,76 @@ $is_gires_table = function ($table) {
                             detailPlaceholder = null;
                             detailModal.style.display = 'none';
                         }
+                    });
+                }
+
+                if (logClose && logModal) {
+                    logClose.addEventListener('click', function() {
+                        logModal.style.display = 'none';
+                    });
+                    logModal.addEventListener('click', function(e) {
+                        if (e.target === logModal) {
+                            logModal.style.display = 'none';
+                        }
+                    });
+                }
+
+                if (genSshBtn) {
+                    genSshBtn.addEventListener('click', function() {
+                        if (genSshStatus) genSshStatus.textContent = i18n.starting;
+                        if (sshPublic) sshPublic.textContent = '';
+                        if (sshConfig) sshConfig.textContent = '';
+                        if (sshDownload) sshDownload.style.display = 'none';
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_generate_ssh_key');
+                        form.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(function(r) {
+                                return r.json().catch(function() {
+                                    throw new Error('json');
+                                });
+                            })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    if (genSshStatus) genSshStatus.textContent = data && data.data ? data.data.message : i18n.sshGenError;
+                                    return;
+                                }
+                                if (sshPublic) sshPublic.textContent = data.data.public_key || '';
+                                if (sshConfig) sshConfig.textContent = data.data.config_snippet || '';
+                                if (sshDownload && data.data.download_url) {
+                                    sshDownload.href = data.data.download_url;
+                                    sshDownload.style.display = 'inline-block';
+                                }
+                                if (genSshStatus) genSshStatus.textContent = i18n.sshGenOk;
+                            })
+                            .catch(function() {
+                                if (genSshStatus) genSshStatus.textContent = i18n.sshGenError;
+                            });
+                    });
+                }
+
+                if (testSshBtn) {
+                    testSshBtn.addEventListener('click', function() {
+                        if (testSshStatus) testSshStatus.textContent = i18n.starting;
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_test_ssh');
+                        form.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(function(r) {
+                                return r.json().catch(function() {
+                                    throw new Error('json');
+                                });
+                            })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    if (testSshStatus) testSshStatus.textContent = data && data.data ? data.data.message : i18n.sshError;
+                                    return;
+                                }
+                                if (testSshStatus) testSshStatus.textContent = data.data.message || i18n.sshOk;
+                            })
+                            .catch(function() {
+                                if (testSshStatus) testSshStatus.textContent = i18n.sshError;
+                            });
                     });
                 }
 
@@ -465,6 +605,7 @@ $is_gires_table = function ($table) {
                         bindRun(div.querySelector('.gires-dry-run'), true);
                         bindStop(div.querySelector('.gires-stop'));
                         bindClean(div.querySelector('.gires-clean'));
+                        bindLogs(div.querySelector('.gires-logs'));
                         div.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
                     });
                 }
@@ -475,7 +616,8 @@ $is_gires_table = function ($table) {
                     return {
                         statusEl: container.querySelector('.gires-status'),
                         barEl: container.querySelector('.gires-progress-bar'),
-                        textEl: container.querySelector('.gires-progress-text')
+                        textEl: container.querySelector('.gires-progress-text'),
+                        stepsEl: container.querySelector('.gires-steps')
                     };
                 }
 
@@ -517,13 +659,36 @@ $is_gires_table = function ($table) {
                             barEl.style.width = p + '%';
                             if (textEl) textEl.textContent = p + '%';
                             statusEl.textContent = data.data.message || '';
+                            var container = statusEl ? (statusEl.closest('.gires-actions') || statusEl.closest('td')) : null;
+                            var stepsEl = container ? container.querySelector('.gires-steps') : null;
+                            renderSteps(stepsEl, data.data.steps || [], data.data.step_index || 0, data.data.status || 'running');
                             if (data.data.status === 'running') {
                                 setTimeout(function() { poll(statusEl, barEl, textEl); }, 1000);
                             } else {
-                                var container = statusEl ? (statusEl.closest('.gires-actions') || statusEl.closest('td')) : null;
                                 setButtonsState(container, false);
                             }
                         });
+                }
+
+                function renderSteps(stepsEl, steps, stepIndex, status) {
+                    if (!stepsEl || !steps || !steps.length) return;
+                    var idx = parseInt(stepIndex || 0, 10);
+                    var isDone = status === 'done';
+                    stepsEl.innerHTML = '';
+                    steps.forEach(function(step, i) {
+                        var state = 'pending';
+                        if (isDone || i < idx) {
+                            state = 'done';
+                        } else if (i === idx) {
+                            state = status === 'error' ? 'error' : 'current';
+                        }
+                        var icon = state === 'done' ? '✓' : (state === 'current' ? '⏳' : (state === 'error' ? '✕' : '•'));
+                        var label = (i18n.stepLabels && i18n.stepLabels[step]) ? i18n.stepLabels[step] : step;
+                        var el = document.createElement('div');
+                        el.className = 'gires-step gires-step--' + state;
+                        el.innerHTML = '<span class="gires-step__icon">' + icon + '</span><span class="gires-step__label">' + label + '</span>';
+                        stepsEl.appendChild(el);
+                    });
                 }
 
                 function bindRun(btn, dryRun) {
@@ -537,10 +702,12 @@ $is_gires_table = function ($table) {
                         var statusEl = els.statusEl;
                         var barEl = els.barEl;
                         var textEl = els.textEl;
+                        var stepsEl = els.stepsEl;
                         var container = btn.closest('.gires-actions') || btn.closest('td');
                         if (statusEl) statusEl.textContent = i18n.starting;
                         if (barEl) barEl.style.width = '0%';
                         if (textEl) textEl.textContent = '0%';
+                        if (stepsEl) stepsEl.innerHTML = '';
                         setButtonsState(container, true, dryRun ? 'dry' : 'run');
                         var form = new FormData();
                         form.append('action', 'gires_cicd_run_job');
@@ -558,6 +725,7 @@ $is_gires_table = function ($table) {
                                     return;
                                 }
                                 if (statusEl) statusEl.textContent = dryRun ? i18n.dryRunning : i18n.running;
+                                renderSteps(stepsEl, data.data.steps || [], data.data.step_index || 0, data.data.status || 'running');
                                 poll(statusEl, barEl, textEl);
                             });
                     });
@@ -614,10 +782,36 @@ $is_gires_table = function ($table) {
                     });
                 }
 
+                function bindLogs(btn) {
+                    btn.addEventListener('click', function() {
+                        if (!logModal || !logContent) return;
+                        logContent.textContent = i18n.logLoading;
+                        if (logPath) logPath.textContent = '';
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_tail_log');
+                        form.append('_ajax_nonce', nonce);
+                        form.append('lines', '200');
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(r => r.json())
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    logContent.textContent = data && data.data ? data.data.message : i18n.logError;
+                                    return;
+                                }
+                                if (logPath && data.data.path) {
+                                    logPath.textContent = data.data.path;
+                                }
+                                logContent.textContent = data.data.lines ? data.data.lines : i18n.logEmpty;
+                            });
+                        logModal.style.display = 'block';
+                    });
+                }
+
                 document.querySelectorAll('.gires-run').forEach(function(btn) { bindRun(btn, false); });
                 document.querySelectorAll('.gires-dry-run').forEach(function(btn) { bindRun(btn, true); });
                 document.querySelectorAll('.gires-stop').forEach(bindStop);
                 document.querySelectorAll('.gires-clean').forEach(bindClean);
+                document.querySelectorAll('.gires-logs').forEach(bindLogs);
 
                 document.querySelectorAll('.gires-open-detail').forEach(function(btn) {
                     btn.addEventListener('click', function() {
@@ -634,6 +828,7 @@ $is_gires_table = function ($table) {
                         card.querySelectorAll('.gires-dry-run').forEach(function(b) { bindRun(b, true); });
                         card.querySelectorAll('.gires-stop').forEach(bindStop);
                         card.querySelectorAll('.gires-clean').forEach(bindClean);
+                        card.querySelectorAll('.gires-logs').forEach(bindLogs);
                         card.querySelectorAll('.gires-table-info').forEach(bindTableInfo);
                     });
                 });
@@ -770,7 +965,63 @@ $is_gires_table = function ($table) {
             </p>
 
             <h2>Avancé</h2>
+            <p class="description">Ces champs concernent uniquement la sync code via SSH et la base distante (prod).</p>
             <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="ssh_host">SSH host (prod)</label></th>
+                    <td><input type="text" id="ssh_host" name="ssh_host" value="<?php echo esc_attr($settings['ssh_host']); ?>" class="regular-text"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="ssh_user">SSH user (prod)</label></th>
+                    <td><input type="text" id="ssh_user" name="ssh_user" value="<?php echo esc_attr($settings['ssh_user']); ?>" class="regular-text"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="ssh_path">SSH path (prod)</label></th>
+                    <td>
+                        <input type="text" id="ssh_path" name="ssh_path" value="<?php echo esc_attr($settings['ssh_path']); ?>" class="regular-text" placeholder="/path/to/wp">
+                        <p><button type="button" class="button button-secondary" id="gires-test-ssh">Tester connexion SSH</button> <span id="gires-test-ssh-status" style="margin-left:8px; color:#6c7075;"></span></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="rsync_excludes">Exclusions rsync</label></th>
+                    <td>
+                        <textarea id="rsync_excludes" name="rsync_excludes" rows="5" class="large-text"><?php echo esc_textarea($settings['rsync_excludes'] ?? ''); ?></textarea>
+                        <p class="description">Un chemin par ligne. Exemples: <code>wp-config.php</code>, <code>.htaccess</code>, <code>wp-content/uploads/</code>.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Clé SSH</th>
+                    <td>
+                        <p><button type="button" class="button button-secondary" id="gires-gen-ssh">Générer une clé SSH</button> <span id="gires-gen-ssh-status" style="margin-left:8px; color:#6c7075;"></span></p>
+                        <p class="description">Le bouton génère une paire de clés et te propose le téléchargement de la clé privée.</p>
+                        <p><strong>Clé publique à coller sur OVH</strong> (<code>/home/gires/.ssh/authorized_keys</code>) :</p>
+                        <pre id="gires-ssh-public" style="white-space:pre-wrap; background:#f6f7f7; padding:10px; border-radius:6px;"></pre>
+                        <p><strong>Bloc à ajouter dans <code>~/.ssh/config</code> :</strong></p>
+                        <pre id="gires-ssh-config" style="white-space:pre-wrap; background:#f6f7f7; padding:10px; border-radius:6px;"></pre>
+                        <p class="description" style="margin-top:8px;">Clé privée : à garder en local (ne pas partager).</p>
+                        <p class="description">Clé publique : à envoyer sur OVH.</p>
+                        <p>
+                            <a id="gires-ssh-download" href="#" class="button button-primary" style="display:none;">Télécharger la clé privée</a>
+                            <a id="gires-ssh-download-pub" href="#" class="button button-secondary" style="display:none;">Télécharger la clé publique</a>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="db_name">DB name (prod)</label></th>
+                    <td><input type="text" id="db_name" name="db_name" value="<?php echo esc_attr($settings['db_name']); ?>" class="regular-text"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="db_user">DB user (prod)</label></th>
+                    <td><input type="text" id="db_user" name="db_user" value="<?php echo esc_attr($settings['db_user']); ?>" class="regular-text"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="db_pass">DB pass (prod)</label></th>
+                    <td><input type="password" id="db_pass" name="db_pass" value="<?php echo esc_attr($settings['db_pass']); ?>" class="regular-text" autocomplete="new-password"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="db_host">DB host (prod)</label></th>
+                    <td><input type="text" id="db_host" name="db_host" value="<?php echo esc_attr($settings['db_host']); ?>" class="regular-text"></td>
+                </tr>
                 <tr>
                     <th scope="row"><label for="migrations_path">Dossier migrations</label></th>
                     <td><input type="text" id="migrations_path" name="migrations_path" value="<?php echo esc_attr($settings['migrations_path']); ?>" class="regular-text"></td>
@@ -791,6 +1042,19 @@ $is_gires_table = function ($table) {
                 var card = document.getElementById('gires-conn-card');
                 var icon = document.getElementById('gires-conn-icon');
                 var statusText = document.getElementById('gires-conn-status');
+                var sshCard = document.getElementById('gires-ssh-card');
+                var sshIcon = document.getElementById('gires-ssh-icon');
+                var sshStatusText = document.getElementById('gires-ssh-status');
+                var genSshBtn = document.getElementById('gires-gen-ssh');
+                var genSshStatus = document.getElementById('gires-gen-ssh-status');
+                var sshPublic = document.getElementById('gires-ssh-public');
+                var sshConfig = document.getElementById('gires-ssh-config');
+                var sshDownload = document.getElementById('gires-ssh-download');
+                var sshDownloadPub = document.getElementById('gires-ssh-download-pub');
+                var testSshBtn = document.getElementById('gires-test-ssh');
+                var testSshStatus = document.getElementById('gires-test-ssh-status');
+                var ajaxUrl = '<?php echo esc_js(admin_url('admin-ajax.php')); ?>';
+                var nonce = '<?php echo esc_js(wp_create_nonce('gires_cicd_job')); ?>';
                 document.querySelectorAll('button[data-action]').forEach(function(btn) {
                     btn.addEventListener('click', function() {
                         if (actionInput) {
@@ -828,6 +1092,32 @@ $is_gires_table = function ($table) {
                     statusText.style.color = color;
                 }
 
+                function setSshCard(type, message) {
+                    if (!sshCard || !sshIcon || !sshStatusText) return;
+                    var bg = 'linear-gradient(180deg,#9aa0a6,#7d8288)';
+                    var symbol = '?';
+                    var color = '#9aa0a6';
+                    if (type === 'success') {
+                        bg = 'linear-gradient(180deg,#39d353,#1f9d2f)';
+                        symbol = '✓';
+                        color = '#2e7d32';
+                    }
+                    if (type === 'error') {
+                        bg = 'linear-gradient(180deg,#ff6b6b,#d64545)';
+                        symbol = '✕';
+                        color = '#c62828';
+                    }
+                    if (type === 'pending') {
+                        bg = 'linear-gradient(180deg,#9aa0a6,#7d8288)';
+                        symbol = '…';
+                        color = '#6c7075';
+                    }
+                    sshIcon.style.background = bg;
+                    sshIcon.textContent = symbol;
+                    sshStatusText.textContent = message;
+                    sshStatusText.style.color = color;
+                }
+
                 function autoTestConnection() {
                     var restEnabled = document.querySelector('input[name="rest_enabled"]');
                     var token = document.getElementById('rest_token');
@@ -862,6 +1152,104 @@ $is_gires_table = function ($table) {
                 }
 
                 autoTestConnection();
+
+                function autoTestSsh() {
+                    var host = document.getElementById('ssh_host');
+                    var user = document.getElementById('ssh_user');
+                    var path = document.getElementById('ssh_path');
+                    if (!host || !user || !path) return;
+                    if (!host.value || !user.value || !path.value) return;
+                    setSshCard('pending', 'Test en cours...');
+                    var form = new FormData();
+                    form.append('action', 'gires_cicd_test_ssh');
+                    form.append('_ajax_nonce', nonce);
+                    fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                        .then(function(r) {
+                            return r.json().catch(function() {
+                                throw new Error('json');
+                            });
+                        })
+                        .then(function(data) {
+                            if (!data || !data.success) {
+                                setSshCard('error', data && data.data ? data.data.message : 'Connexion SSH impossible.');
+                                return;
+                            }
+                            setSshCard('success', data.data.message || 'Connexion SSH OK.');
+                        })
+                        .catch(function() {
+                            setSshCard('error', 'Connexion SSH impossible.');
+                        });
+                }
+
+                autoTestSsh();
+
+                if (genSshBtn) {
+                    genSshBtn.addEventListener('click', function() {
+                        if (genSshStatus) genSshStatus.textContent = 'Démarrage...';
+                        if (sshPublic) sshPublic.textContent = '';
+                        if (sshConfig) sshConfig.textContent = '';
+                        if (sshDownload) sshDownload.style.display = 'none';
+                        if (sshDownloadPub) sshDownloadPub.style.display = 'none';
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_generate_ssh_key');
+                        form.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(function(r) {
+                                return r.json().catch(function() {
+                                    throw new Error('json');
+                                });
+                            })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    if (genSshStatus) genSshStatus.textContent = data && data.data ? data.data.message : 'Impossible de générer la clé.';
+                                    return;
+                                }
+                                if (sshPublic) sshPublic.textContent = data.data.public_key || '';
+                                if (sshConfig) sshConfig.textContent = data.data.config_snippet || '';
+                                if (sshDownload && data.data.download_private) {
+                                    sshDownload.href = data.data.download_private;
+                                    sshDownload.style.display = 'inline-block';
+                                }
+                                if (sshDownloadPub && data.data.download_public) {
+                                    sshDownloadPub.href = data.data.download_public;
+                                    sshDownloadPub.style.display = 'inline-block';
+                                }
+                                if (genSshStatus) genSshStatus.textContent = 'Clé générée.';
+                            })
+                            .catch(function() {
+                                if (genSshStatus) genSshStatus.textContent = 'Impossible de générer la clé.';
+                            });
+                    });
+                }
+
+                if (testSshBtn) {
+                    testSshBtn.addEventListener('click', function() {
+                        if (testSshStatus) testSshStatus.textContent = 'Test en cours...';
+                        setSshCard('pending', 'Test en cours...');
+                        var form = new FormData();
+                        form.append('action', 'gires_cicd_test_ssh');
+                        form.append('_ajax_nonce', nonce);
+                        fetch(ajaxUrl, { method: 'POST', body: form, credentials: 'same-origin' })
+                            .then(function(r) {
+                                return r.json().catch(function() {
+                                    throw new Error('json');
+                                });
+                            })
+                            .then(function(data) {
+                                if (!data || !data.success) {
+                                    if (testSshStatus) testSshStatus.textContent = data && data.data ? data.data.message : 'Connexion SSH impossible.';
+                                    setSshCard('error', data && data.data ? data.data.message : 'Connexion SSH impossible.');
+                                    return;
+                                }
+                                if (testSshStatus) testSshStatus.textContent = data.data.message || 'Connexion SSH OK.';
+                                setSshCard('success', data.data.message || 'Connexion SSH OK.');
+                            })
+                            .catch(function() {
+                                if (testSshStatus) testSshStatus.textContent = 'Connexion SSH impossible.';
+                                setSshCard('error', 'Connexion SSH impossible.');
+                            });
+                    });
+                }
             })();
         </script>
     <?php endif; ?>

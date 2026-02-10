@@ -16,6 +16,7 @@ class Settings {
             'rest_last_connection_ok' => false,
             'remote_site_url' => '',
             'remote_pending_count' => 0,
+            'remote_plugin_version' => '',
             'remote_ip' => '',
             'remote_url' => '',
             'ssh_host' => '',
@@ -25,6 +26,7 @@ class Settings {
             'db_user' => '',
             'db_pass' => '',
             'db_host' => 'localhost',
+            'rsync_excludes' => "wp-config.php",
             'replication_sets' => [
                 [
                     'id' => 'pull_prod',
@@ -71,7 +73,34 @@ class Settings {
     }
 
     public function get_all() {
-        return array_merge(self::defaults(), get_option($this->option_name, []));
+        $all = array_merge(self::defaults(), get_option($this->option_name, []));
+        $must_persist = false;
+
+        if (trim((string) ($all['rsync_excludes'] ?? '')) === '') {
+            $all['rsync_excludes'] = self::defaults()['rsync_excludes'];
+            $must_persist = true;
+        }
+
+        $map = [
+            'ssh_host' => 'GIRES_CICD_SSH_HOST',
+            'ssh_user' => 'GIRES_CICD_SSH_USER',
+            'ssh_path' => 'GIRES_CICD_SSH_PATH',
+            'db_name' => 'GIRES_CICD_DB_NAME',
+            'db_user' => 'GIRES_CICD_DB_USER',
+            'db_pass' => 'GIRES_CICD_DB_PASS',
+            'db_host' => 'GIRES_CICD_DB_HOST',
+        ];
+        foreach ($map as $key => $const) {
+            if (defined($const) && constant($const) !== '') {
+                $all[$key] = constant($const);
+            }
+        }
+
+        if ($must_persist) {
+            update_option($this->option_name, $all);
+        }
+
+        return $all;
     }
 
     public function get($key, $default = null) {

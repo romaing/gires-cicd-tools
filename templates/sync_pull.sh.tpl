@@ -8,13 +8,22 @@ set -euo pipefail
 # DB_NAME={{DB_NAME}} DB_USER={{DB_USER}} DB_PASS={{DB_PASS}} DB_HOST={{DB_HOST}} \
 # ./scripts/sync_pull.sh
 
+SSH_CMD="${SSH_CMD:-ssh}"
+RSYNC_RSH="${RSYNC_RSH:-$SSH_CMD}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 : "${SYNC_HOST:?Missing SYNC_HOST}"
 : "${SYNC_USER:?Missing SYNC_USER}"
 : "${SYNC_PATH:?Missing SYNC_PATH}"
-: "${DB_NAME:?Missing DB_NAME}"
-: "${DB_USER:?Missing DB_USER}"
-: "${DB_PASS:?Missing DB_PASS}"
-: "${DB_HOST:=localhost}"
+SKIP_DB="${SKIP_DB:-0}"
+SKIP_UPLOADS="${SKIP_UPLOADS:-0}"
+
+if [ "${SKIP_DB}" != "1" ]; then
+  : "${DB_NAME:?Missing DB_NAME}"
+  : "${DB_USER:?Missing DB_USER}"
+  : "${DB_PASS:?Missing DB_PASS}"
+  : "${DB_HOST:=localhost}"
+fi
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="backups"
@@ -23,10 +32,32 @@ mkdir -p "$BACKUP_DIR"
 REMOTE_DB_DUMP="/tmp/wp_db_${TIMESTAMP}.sql"
 LOCAL_DB_DUMP="$BACKUP_DIR/wp_db_${TIMESTAMP}.sql"
 
-ssh "${SYNC_USER}@${SYNC_HOST}" "MYSQL_PWD='${DB_PASS}' /usr/bin/mysqldump -h ${DB_HOST} -u ${DB_USER} ${DB_NAME} > ${REMOTE_DB_DUMP}"
-scp "${SYNC_USER}@${SYNC_HOST}:${REMOTE_DB_DUMP}" "$LOCAL_DB_DUMP"
-ssh "${SYNC_USER}@${SYNC_HOST}" "rm -f ${REMOTE_DB_DUMP}"
+# 1) Code: WP core
+rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-admin/" "${ROOT_DIR}/wp-admin/"
+rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-includes/" "${ROOT_DIR}/wp-includes/"
+rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/" "${ROOT_DIR}/tmp_sync_root/" \
+  --exclude "wp-admin/" --exclude "wp-includes/" --exclude "wp-content/" \
+  --include "index.php" --include "wp-*.php" --include "xmlrpc.php" --include "license.txt" --include "readme.html" \
+  --exclude "*"
+if [ -d "${ROOT_DIR}/tmp_sync_root" ]; then
+  rsync -avz --delete "${ROOT_DIR}/tmp_sync_root/" "${ROOT_DIR}/"
+  rm -rf "${ROOT_DIR}/tmp_sync_root"
+fi
 
-rsync -avz --delete "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/" "wp-content/uploads/"
+# 2) Code: WP plugins + themes (templates)
+  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/plugins/" "${ROOT_DIR}/wp-content/plugins/"
+  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/themes/" "${ROOT_DIR}/wp-content/themes/"
 
-echo "OK: DB + uploads pulled."
+if [ "${SKIP_DB}" != "1" ]; then
+  # 3) Data: DB
+  $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "MYSQL_PWD='${DB_PASS}' /usr/bin/mysqldump -h ${DB_HOST} -u ${DB_USER} ${DB_NAME} > ${REMOTE_DB_DUMP}"
+  scp -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}:${REMOTE_DB_DUMP}" "$LOCAL_DB_DUMP"
+  $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "rm -f ${REMOTE_DB_DUMP}"
+fi
+
+if [ "${SKIP_UPLOADS}" != "1" ]; then
+  # 4) Data: uploads
+  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/" "${ROOT_DIR}/wp-content/uploads/"
+fi
+
+echo "OK: WP core + plugins + themes pulled."

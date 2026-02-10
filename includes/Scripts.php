@@ -20,6 +20,7 @@ class Scripts {
             'DB_USER' => $settings['db_user'] ?? 'db_user',
             'DB_PASS' => $settings['db_pass'] ?? 'db_pass',
             'DB_HOST' => $settings['db_host'] ?? 'localhost',
+            'RSYNC_EXCLUDES' => $this->build_rsync_excludes($settings['rsync_excludes'] ?? ''),
         ];
 
         if (!$include_secrets) {
@@ -53,6 +54,19 @@ class Scripts {
         @chmod($scripts_dir . '/sync_push.sh', 0755);
 
         return true;
+    }
+
+    private function build_rsync_excludes($raw) {
+        $lines = preg_split('/\r?\n/', (string) $raw);
+        $lines = array_values(array_filter(array_map('trim', $lines)));
+        if (empty($lines)) {
+            return '';
+        }
+        $parts = [];
+        foreach ($lines as $line) {
+            $parts[] = '--exclude=' . escapeshellarg($line);
+        }
+        return implode(' ', $parts);
     }
 
     public static function cleanup() {

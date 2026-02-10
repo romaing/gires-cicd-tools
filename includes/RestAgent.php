@@ -145,6 +145,7 @@ class RestAgent {
             'replace' => $request->get_param('replace') ?? [],
             'exclude_option_prefix' => $request->get_param('exclude_option_prefix') ?? '',
             'search_only_tables' => $request->get_param('search_only_tables') ?? [],
+            'insert_chunk_size' => (int) ($request->get_param('insert_chunk_size') ?? 0),
         ];
 
         $sql = $this->replication->export_sql($set, $override);

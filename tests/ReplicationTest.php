@@ -60,6 +60,17 @@ final class ReplicationTest extends TestCase {
         $result = $method->invoke($this->replication, $data, ['http://old.local'], ['https://prod.example']);
         $this->assertStringContainsString('https://prod.example', $result);
     }
+
+    public function testExportSqlChunksInserts(): void {
+        $wpdb = new FakeWpdbChunk();
+        $GLOBALS['wpdb'] = $wpdb;
+        $replication = new Replication($this->settings);
+
+        $set = ['tables' => ['wp_posts']];
+        $sql = $replication->export_sql($set, ['insert_chunk_size' => 2]);
+
+        $this->assertSame(3, substr_count($sql, 'INSERT INTO `wp_posts`'));
+    }
 }
 
 final class FakeWpdb {
@@ -104,6 +115,33 @@ final class FakeWpdb {
         if (stripos($statement, 'RENAME TABLE') !== false) {
             $this->sawRename = true;
         }
+        return true;
+    }
+}
+
+final class FakeWpdbChunk {
+    public $prefix = 'wp_';
+    public $last_error = '';
+
+    public function get_col($query) {
+        return ['wp_posts'];
+    }
+
+    public function get_row($query, $output = null) {
+        return ['Create Table' => 'CREATE TABLE `wp_posts` (id INT, post_content TEXT)'];
+    }
+
+    public function get_results($query, $output = null) {
+        return [
+            ['id' => 1, 'post_content' => 'a'],
+            ['id' => 2, 'post_content' => 'b'],
+            ['id' => 3, 'post_content' => 'c'],
+            ['id' => 4, 'post_content' => 'd'],
+            ['id' => 5, 'post_content' => 'e'],
+        ];
+    }
+
+    public function query($statement) {
         return true;
     }
 }

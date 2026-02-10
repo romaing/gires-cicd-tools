@@ -35,6 +35,11 @@ class Replication {
         $search_only = $override['search_only_tables'] ?? [];
         $search_only = $this->normalize_lines($search_only);
 
+        $chunk_size = (int) ($override['insert_chunk_size'] ?? ($set['insert_chunk_size'] ?? 50));
+        if ($chunk_size < 1) {
+            $chunk_size = 200;
+        }
+
         $sql = "SET foreign_key_checks=0;\n";
         $sql .= "SET sql_mode='NO_AUTO_VALUE_ON_ZERO';\n\n";
 
@@ -73,7 +78,10 @@ class Replication {
         }
 
             if (!empty($values)) {
-                $sql .= "INSERT INTO `{$table}` ({$column_list}) VALUES\n" . implode(",\n", $values) . ";\n\n";
+                $chunks = array_chunk($values, $chunk_size);
+                foreach ($chunks as $chunk) {
+                    $sql .= "INSERT INTO `{$table}` ({$column_list}) VALUES\n" . implode(",\n", $chunk) . ";\n\n";
+                }
             }
         }
 

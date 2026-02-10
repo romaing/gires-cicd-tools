@@ -46,4 +46,18 @@ final class AdminTest extends TestCase {
         $normalized = $method->invoke($this->admin, $sets);
         $this->assertNotEmpty($normalized[0]['id']);
     }
+
+    public function testNormalizeSqlPayloadDecodesJsonString(): void {
+        $method = new ReflectionMethod(Admin::class, 'normalize_sql_payload');
+        $method->setAccessible(true);
+
+        $raw = "SELECT 1;\n";
+        $json = json_encode($raw);
+
+        $decoded = $method->invoke($this->admin, $json);
+        $this->assertSame($raw, $decoded);
+
+        $plain = $method->invoke($this->admin, $raw);
+        $this->assertSame($raw, $plain);
+    }
 }

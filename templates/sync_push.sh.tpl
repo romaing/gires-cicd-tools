@@ -11,6 +11,24 @@ set -euo pipefail
 SSH_CMD="${SSH_CMD:-ssh}"
 RSYNC_RSH="${RSYNC_RSH:-$SSH_CMD}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKIP_SAFETY_BACKUP="${SKIP_SAFETY_BACKUP:-0}"
+AUTO_DELETE_SAFETY_BACKUP="${AUTO_DELETE_SAFETY_BACKUP:-0}"
+SAFETY_BACKUP_DIR="${SAFETY_BACKUP_DIR:-/tmp/_sync_safety_backups}"
+REMOTE_SAFETY_BACKUP_DIR="${REMOTE_SAFETY_BACKUP_DIR:-/tmp/gires-sync-backups}"
+RUN_SMOKE_AFTER_SYNC="${RUN_SMOKE_AFTER_SYNC:-0}"
+SMOKE_STRICT="${SMOKE_STRICT:-0}"
+SMOKE_SCRIPT="${SMOKE_SCRIPT:-$ROOT_DIR/scripts/smoke_wp.sh}"
+RSYNC_SAFE_EXCLUDES=(
+  --exclude=wp-config.php
+  --exclude=.git/
+  --exclude=.gitmodules
+  --exclude=Documentation/
+  --exclude=scripts/
+  --exclude=backups/
+  --exclude=vendor/
+  --exclude=Telechargements/
+  --exclude=Téléchargements/
+)
 
 : "${SYNC_HOST:?Missing SYNC_HOST}"
 : "${SYNC_USER:?Missing SYNC_USER}"
@@ -34,11 +52,98 @@ if [ "${SKIP_DB}" != "1" ]; then
 fi
 
 REMOTE_DB_DUMP="/tmp/wp_db_push.sql"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOCAL_SAFETY_ARCHIVE=""
+LOCAL_SAFETY_ARCHIVE_FALLBACK=""
+REMOTE_SAFETY_ARCHIVE=""
+REMOTE_SAFETY_ARCHIVE_FALLBACK=""
+LAST_BACKUP_FILE="${SAFETY_BACKUP_DIR}/LAST_BACKUP.txt"
+
+on_error() {
+  local exit_code=$?
+  echo "❌ Sync failed (exit ${exit_code})."
+  echo "Rollback local backup: ${LOCAL_SAFETY_ARCHIVE:-$LOCAL_SAFETY_ARCHIVE_FALLBACK}"
+  if [ -n "${REMOTE_SAFETY_ARCHIVE:-}" ] || [ -n "${REMOTE_SAFETY_ARCHIVE_FALLBACK:-}" ]; then
+    echo "Rollback remote backup: ${SYNC_USER}@${SYNC_HOST}:${REMOTE_SAFETY_ARCHIVE:-$REMOTE_SAFETY_ARCHIVE_FALLBACK}"
+  fi
+  echo "Last backup pointer: ${LAST_BACKUP_FILE}"
+}
+
+run_smoke_if_enabled() {
+  if [ "$RUN_SMOKE_AFTER_SYNC" != "1" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$SMOKE_SCRIPT" ]; then
+    echo "WARN: smoke script missing or not executable: $SMOKE_SCRIPT"
+    [ "$SMOKE_STRICT" = "1" ] && return 1
+    return 0
+  fi
+
+  echo "Running smoke tests: $SMOKE_SCRIPT"
+  if "$SMOKE_SCRIPT"; then
+    echo "Smoke tests: OK"
+    return 0
+  fi
+
+  echo "Smoke tests: FAILED"
+  [ "$SMOKE_STRICT" = "1" ] && return 1
+  return 0
+}
+
+create_local_safety_backup() {
+  mkdir -p "$SAFETY_BACKUP_DIR"
+  local project_parent
+  local project_name
+  project_parent="$(dirname "$ROOT_DIR")"
+  project_name="$(basename "$ROOT_DIR")"
+  LOCAL_SAFETY_ARCHIVE="${SAFETY_BACKUP_DIR}/${project_name}_prepush_${TIMESTAMP}.zip"
+  LOCAL_SAFETY_ARCHIVE_FALLBACK="${SAFETY_BACKUP_DIR}/${project_name}_prepush_${TIMESTAMP}.tar.gz"
+
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$project_parent" && zip -qry "$LOCAL_SAFETY_ARCHIVE" "$project_name")
+    echo "Safety backup (local) created: $LOCAL_SAFETY_ARCHIVE"
+  else
+    tar -czf "$LOCAL_SAFETY_ARCHIVE_FALLBACK" -C "$project_parent" "$project_name"
+    echo "Safety backup (local) created: $LOCAL_SAFETY_ARCHIVE_FALLBACK"
+  fi
+}
+
+create_remote_safety_backup() {
+  local remote_parent
+  local remote_name
+  remote_parent="$(dirname "$SYNC_PATH")"
+  remote_name="$(basename "$SYNC_PATH")"
+  REMOTE_SAFETY_ARCHIVE="${REMOTE_SAFETY_BACKUP_DIR}/${remote_name}_prepush_${TIMESTAMP}.zip"
+  REMOTE_SAFETY_ARCHIVE_FALLBACK="${REMOTE_SAFETY_BACKUP_DIR}/${remote_name}_prepush_${TIMESTAMP}.tar.gz"
+
+  $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "set -e; mkdir -p '${REMOTE_SAFETY_BACKUP_DIR}'; if command -v zip >/dev/null 2>&1; then cd '${remote_parent}' && zip -qry '${REMOTE_SAFETY_ARCHIVE}' '${remote_name}'; else tar -czf '${REMOTE_SAFETY_ARCHIVE_FALLBACK}' -C '${remote_parent}' '${remote_name}'; fi"
+  if [ -n "${REMOTE_SAFETY_ARCHIVE}" ]; then
+    echo "Safety backup (remote) created: ${SYNC_USER}@${SYNC_HOST}:${REMOTE_SAFETY_ARCHIVE} (or ${REMOTE_SAFETY_ARCHIVE_FALLBACK})"
+  fi
+}
+
+if [ "$SKIP_SAFETY_BACKUP" != "1" ]; then
+  create_local_safety_backup
+  create_remote_safety_backup
+  cat > "$LAST_BACKUP_FILE" <<EOF
+timestamp=${TIMESTAMP}
+type=push
+project_root=${ROOT_DIR}
+local_backup=${LOCAL_SAFETY_ARCHIVE:-$LOCAL_SAFETY_ARCHIVE_FALLBACK}
+remote_backup=${REMOTE_SAFETY_ARCHIVE:-$REMOTE_SAFETY_ARCHIVE_FALLBACK}
+remote_host=${SYNC_USER}@${SYNC_HOST}
+EOF
+else
+  echo "WARN: safety backups skipped (SKIP_SAFETY_BACKUP=1)."
+fi
+
+trap on_error ERR
 
 # 1) Code: WP core (si présent en local)
 if [ -d "${ROOT_DIR}/wp-admin" ] && [ -d "${ROOT_DIR}/wp-includes" ]; then
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-admin/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-admin/"
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-includes/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-includes/"
+  rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-admin/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-admin/"
+  rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-includes/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-includes/"
   CORE_FILES=()
   for f in index.php xmlrpc.php license.txt readme.html; do
     if [ -f "${ROOT_DIR}/${f}" ]; then CORE_FILES+=("${ROOT_DIR}/${f}"); fi
@@ -52,15 +157,15 @@ if [ -d "${ROOT_DIR}/wp-admin" ] && [ -d "${ROOT_DIR}/wp-includes" ]; then
     fi
   done
   if [ ${#CORE_FILES[@]} -gt 0 ]; then
-    rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${CORE_FILES[@]}" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/"
+    rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${CORE_FILES[@]}" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/"
   fi
 else
   echo "WARN: WP core absent en local, sync core ignorée."
 fi
 
 # 2) Code: WP plugins + themes (templates)
-rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/plugins/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/plugins/"
-rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/themes/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/themes/"
+rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/plugins/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/plugins/"
+rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/themes/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/themes/"
 
 if [ "${SKIP_DB}" != "1" ]; then
   # 3) Data: DB
@@ -71,7 +176,17 @@ fi
 
 if [ "${SKIP_UPLOADS}" != "1" ]; then
   # 4) Data: uploads
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/uploads/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/"
+  rsync -e "$RSYNC_RSH" -avz --delete "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} "${ROOT_DIR}/wp-content/uploads/" "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/"
+fi
+
+run_smoke_if_enabled
+
+if [ "$AUTO_DELETE_SAFETY_BACKUP" = "1" ]; then
+  rm -f "$LOCAL_SAFETY_ARCHIVE" "$LOCAL_SAFETY_ARCHIVE_FALLBACK" 2>/dev/null || true
+  if [ "$SKIP_SAFETY_BACKUP" != "1" ]; then
+    $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "rm -f '${REMOTE_SAFETY_ARCHIVE}' '${REMOTE_SAFETY_ARCHIVE_FALLBACK}'" || true
+  fi
+  echo "Safety backups removed (AUTO_DELETE_SAFETY_BACKUP=1)."
 fi
 
 echo "OK: WP core + plugins + themes pushed."

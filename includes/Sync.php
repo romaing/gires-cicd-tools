@@ -52,8 +52,16 @@ class Sync {
                 continue;
             }
 
+            $tmp_exists = (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $tmp));
+            if (!$tmp_exists) {
+                continue;
+            }
+
+            $live_exists = (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $live));
             $wpdb->query("DROP TABLE IF EXISTS `{$bak}`");
-            $wpdb->query("RENAME TABLE `{$live}` TO `{$bak}`");
+            if ($live_exists) {
+                $wpdb->query("RENAME TABLE `{$live}` TO `{$bak}`");
+            }
             $wpdb->query("RENAME TABLE `{$tmp}` TO `{$live}`");
         }
         return true;

@@ -5,59 +5,132 @@ set -euo pipefail
 # Sync prod -> local
 # Usage:
 # SYNC_HOST={{SYNC_HOST}} SYNC_USER={{SYNC_USER}} SYNC_PATH={{SYNC_PATH}} \
-# DB_NAME={{DB_NAME}} DB_USER={{DB_USER}} DB_PASS={{DB_PASS}} DB_HOST={{DB_HOST}} \
 # ./scripts/sync_pull.sh
 
 SSH_CMD="${SSH_CMD:-ssh}"
 RSYNC_RSH="${RSYNC_RSH:-$SSH_CMD}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKIP_SAFETY_BACKUP="${SKIP_SAFETY_BACKUP:-0}"
+AUTO_DELETE_SAFETY_BACKUP="${AUTO_DELETE_SAFETY_BACKUP:-0}"
+SAFETY_BACKUP_DIR="${SAFETY_BACKUP_DIR:-/tmp/_sync_safety_backups}"
+RUN_SMOKE_AFTER_SYNC="${RUN_SMOKE_AFTER_SYNC:-0}"
+SMOKE_STRICT="${SMOKE_STRICT:-0}"
+SMOKE_SCRIPT="${SMOKE_SCRIPT:-$ROOT_DIR/scripts/smoke_wp.sh}"
+RSYNC_SAFE_EXCLUDES=(
+  --exclude=wp-config.php
+  --exclude=.git/
+  --exclude=.gitmodules
+  --exclude=Documentation/
+  --exclude=scripts/
+  --exclude=backups/
+  --exclude=vendor/
+  --exclude=Telechargements/
+  --exclude=Téléchargements/
+)
 
 : "${SYNC_HOST:?Missing SYNC_HOST}"
 : "${SYNC_USER:?Missing SYNC_USER}"
 : "${SYNC_PATH:?Missing SYNC_PATH}"
-SKIP_DB="${SKIP_DB:-0}"
 SKIP_UPLOADS="${SKIP_UPLOADS:-0}"
-
-if [ "${SKIP_DB}" != "1" ]; then
-  : "${DB_NAME:?Missing DB_NAME}"
-  : "${DB_USER:?Missing DB_USER}"
-  : "${DB_PASS:?Missing DB_PASS}"
-  : "${DB_HOST:=localhost}"
-fi
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="backups"
 mkdir -p "$BACKUP_DIR"
 
-REMOTE_DB_DUMP="/tmp/wp_db_${TIMESTAMP}.sql"
-LOCAL_DB_DUMP="$BACKUP_DIR/wp_db_${TIMESTAMP}.sql"
+LOCAL_SAFETY_ARCHIVE=""
+LOCAL_SAFETY_ARCHIVE_FALLBACK=""
+LAST_BACKUP_FILE="${SAFETY_BACKUP_DIR}/LAST_BACKUP.txt"
 
-# 1) Code: WP core
-rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-admin/" "${ROOT_DIR}/wp-admin/"
-rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-includes/" "${ROOT_DIR}/wp-includes/"
-rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/" "${ROOT_DIR}/tmp_sync_root/" \
-  --exclude "wp-admin/" --exclude "wp-includes/" --exclude "wp-content/" \
-  --include "index.php" --include "wp-*.php" --include "xmlrpc.php" --include "license.txt" --include "readme.html" \
-  --exclude "*"
-if [ -d "${ROOT_DIR}/tmp_sync_root" ]; then
-  rsync -avz --delete "${ROOT_DIR}/tmp_sync_root/" "${ROOT_DIR}/"
-  rm -rf "${ROOT_DIR}/tmp_sync_root"
+on_error() {
+  local exit_code=$?
+  echo "❌ Sync failed (exit ${exit_code})."
+  echo "Rollback backup available at: ${LOCAL_SAFETY_ARCHIVE:-$LOCAL_SAFETY_ARCHIVE_FALLBACK}"
+  echo "Last backup pointer: ${LAST_BACKUP_FILE}"
+}
+
+run_smoke_if_enabled() {
+  if [ "$RUN_SMOKE_AFTER_SYNC" != "1" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$SMOKE_SCRIPT" ]; then
+    echo "WARN: smoke script missing or not executable: $SMOKE_SCRIPT"
+    [ "$SMOKE_STRICT" = "1" ] && return 1
+    return 0
+  fi
+
+  echo "Running smoke tests: $SMOKE_SCRIPT"
+  if "$SMOKE_SCRIPT"; then
+    echo "Smoke tests: OK"
+    return 0
+  fi
+
+  echo "Smoke tests: FAILED"
+  [ "$SMOKE_STRICT" = "1" ] && return 1
+  return 0
+}
+
+create_local_safety_backup() {
+  mkdir -p "$SAFETY_BACKUP_DIR"
+  local project_parent
+  local project_name
+  project_parent="$(dirname "$ROOT_DIR")"
+  project_name="$(basename "$ROOT_DIR")"
+  LOCAL_SAFETY_ARCHIVE="${SAFETY_BACKUP_DIR}/${project_name}_prepull_${TIMESTAMP}.zip"
+  LOCAL_SAFETY_ARCHIVE_FALLBACK="${SAFETY_BACKUP_DIR}/${project_name}_prepull_${TIMESTAMP}.tar.gz"
+
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$project_parent" && zip -qry "$LOCAL_SAFETY_ARCHIVE" "$project_name")
+    echo "Safety backup (local) created: $LOCAL_SAFETY_ARCHIVE"
+  else
+    tar -czf "$LOCAL_SAFETY_ARCHIVE_FALLBACK" -C "$project_parent" "$project_name"
+    echo "Safety backup (local) created: $LOCAL_SAFETY_ARCHIVE_FALLBACK"
+  fi
+
+  cat > "$LAST_BACKUP_FILE" <<EOF
+timestamp=${TIMESTAMP}
+type=pull
+project_root=${ROOT_DIR}
+local_backup=${LOCAL_SAFETY_ARCHIVE:-$LOCAL_SAFETY_ARCHIVE_FALLBACK}
+EOF
+}
+
+if [ "$SKIP_SAFETY_BACKUP" != "1" ]; then
+  create_local_safety_backup
+else
+  echo "WARN: local safety backup skipped (SKIP_SAFETY_BACKUP=1)."
 fi
 
-# 2) Code: WP plugins + themes (templates)
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/plugins/" "${ROOT_DIR}/wp-content/plugins/"
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/themes/" "${ROOT_DIR}/wp-content/themes/"
-
-if [ "${SKIP_DB}" != "1" ]; then
-  # 3) Data: DB
-  $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "MYSQL_PWD='${DB_PASS}' /usr/bin/mysqldump -h ${DB_HOST} -u ${DB_USER} ${DB_NAME} > ${REMOTE_DB_DUMP}"
-  scp -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}:${REMOTE_DB_DUMP}" "$LOCAL_DB_DUMP"
-  $SSH_CMD -o "StrictHostKeyChecking=no" "${SYNC_USER}@${SYNC_HOST}" "rm -f ${REMOTE_DB_DUMP}"
-fi
+trap on_error ERR
 
 if [ "${SKIP_UPLOADS}" != "1" ]; then
-  # 4) Data: uploads
-  rsync -e "$RSYNC_RSH" -avz --delete {{RSYNC_EXCLUDES}} "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/" "${ROOT_DIR}/wp-content/uploads/"
+  # 1) Data: uploads only (safe swap)
+  UPLOADS_DIR="${ROOT_DIR}/wp-content/uploads"
+  UPLOADS_TMP="${ROOT_DIR}/wp-content/uploads_tmp"
+  UPLOADS_BAK="${ROOT_DIR}/wp-content/uploads_bak"
+
+  rm -rf "${UPLOADS_TMP}"
+  mkdir -p "${UPLOADS_TMP}"
+
+  if [ -d "${UPLOADS_DIR}" ]; then
+    rsync -a "${UPLOADS_DIR}/" "${UPLOADS_TMP}/"
+  fi
+
+  rsync -e "$RSYNC_RSH" -avz --update "${RSYNC_SAFE_EXCLUDES[@]}" {{RSYNC_EXCLUDES}} \
+    "${SYNC_USER}@${SYNC_HOST}:${SYNC_PATH}/wp-content/uploads/" "${UPLOADS_TMP}/"
+
+  if [ -d "${UPLOADS_DIR}" ]; then
+    rm -rf "${UPLOADS_BAK}"
+    mv "${UPLOADS_DIR}" "${UPLOADS_BAK}"
+  fi
+  mv "${UPLOADS_TMP}" "${UPLOADS_DIR}"
 fi
 
-echo "OK: WP core + plugins + themes pulled."
+run_smoke_if_enabled
+
+if [ "$AUTO_DELETE_SAFETY_BACKUP" = "1" ]; then
+  rm -f "$LOCAL_SAFETY_ARCHIVE" "$LOCAL_SAFETY_ARCHIVE_FALLBACK" 2>/dev/null || true
+  echo "Safety backup removed (AUTO_DELETE_SAFETY_BACKUP=1)."
+fi
+
+echo "OK: uploads pulled."

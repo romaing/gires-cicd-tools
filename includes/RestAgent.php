@@ -130,14 +130,30 @@ class RestAgent {
 
     public function export_replication(\WP_REST_Request $request) {
         $set_name = sanitize_text_field($request->get_param('set_name'));
+        $tables = $request->get_param('tables');
+        $tables = is_array($tables) ? array_values(array_filter(array_map('sanitize_text_field', $tables))) : [];
+
         $set = $this->replication->get_set_by_name($set_name);
         if (!$set) {
-            return rest_ensure_response(['success' => false, 'message' => 'Set inconnu']);
-        }
-
-        $tables = $request->get_param('tables');
-        if (is_array($tables)) {
-            $set['tables'] = array_values(array_filter(array_map('sanitize_text_field', $tables)));
+            if (empty($tables)) {
+                return rest_ensure_response(['success' => false, 'message' => 'Set inconnu']);
+            }
+            // Allow export with an ad hoc set payload when table list is provided.
+            $set = [
+                'id' => $set_name,
+                'name' => $set_name,
+                'type' => 'pull',
+                'tables' => $tables,
+                'search' => [],
+                'replace' => [],
+                'include_media' => false,
+                'media_chunk_mb' => 512,
+                'temp_prefix' => 'tmp_',
+                'backup_prefix' => 'bak_',
+                'auto_cleanup' => true,
+            ];
+        } elseif (!empty($tables)) {
+            $set['tables'] = $tables;
         }
 
         $override = [
@@ -176,14 +192,30 @@ class RestAgent {
 
     public function import_replication(\WP_REST_Request $request) {
         $set_name = sanitize_text_field($request->get_param('set_name'));
+        $tables = $request->get_param('tables');
+        $tables = is_array($tables) ? array_values(array_filter(array_map('sanitize_text_field', $tables))) : [];
+
         $set = $this->replication->get_set_by_name($set_name);
         if (!$set) {
-            return rest_ensure_response(['success' => false, 'message' => 'Set inconnu']);
-        }
-
-        $tables = $request->get_param('tables');
-        if (is_array($tables)) {
-            $set['tables'] = array_values(array_filter(array_map('sanitize_text_field', $tables)));
+            if (empty($tables)) {
+                return rest_ensure_response(['success' => false, 'message' => 'Set inconnu']);
+            }
+            // Allow import with an ad hoc set payload when table list is provided.
+            $set = [
+                'id' => $set_name,
+                'name' => $set_name,
+                'type' => 'pull',
+                'tables' => $tables,
+                'search' => [],
+                'replace' => [],
+                'include_media' => false,
+                'media_chunk_mb' => 512,
+                'temp_prefix' => 'tmp_',
+                'backup_prefix' => 'bak_',
+                'auto_cleanup' => true,
+            ];
+        } elseif (!empty($tables)) {
+            $set['tables'] = $tables;
         }
 
         $encoding = sanitize_text_field($request->get_param('encoding') ?? '');

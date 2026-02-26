@@ -17,6 +17,10 @@ class Admin {
         add_action('admin_menu', [$this, 'add_menu']);
         add_action('admin_post_gires_cicd_save', [$this, 'save_settings']);
         add_action('admin_post_gires_cicd_run_migrations', [$this, 'run_migrations']);
+        add_action('admin_post_gires_cicd_delete_migration', [$this, 'delete_migration']);
+        add_action('admin_post_gires_cicd_delete_set', [$this, 'delete_set']);
+        add_action('admin_post_gires_cicd_delete_sets', [$this, 'delete_sets']);
+        add_action('admin_post_gires_cicd_duplicate_sets', [$this, 'duplicate_sets']);
         add_action('admin_post_gires_cicd_generate_scripts', [$this, 'generate_scripts']);
         add_action('admin_post_gires_cicd_connect', [$this, 'connect_remote']);
         add_action('admin_post_gires_cicd_run_sync', [$this, 'run_sync']);
@@ -30,6 +34,8 @@ class Admin {
         add_action('wp_ajax_gires_cicd_cleanup', [$this, 'ajax_cleanup']);
         add_action('wp_ajax_gires_cicd_table_info', [$this, 'ajax_table_info']);
         add_action('wp_ajax_gires_cicd_test_connection', [$this, 'ajax_test_connection']);
+        add_action('wp_ajax_gires_cicd_preview_job', [$this, 'ajax_preview_job']);
+        add_action('gires_cicd_continue_job', [$this, 'continue_job_background']);
     }
 
     public function add_menu() {
@@ -120,6 +126,174 @@ class Admin {
         $query = $errors ? 'error=1' : 'ran=1';
         wp_redirect(admin_url('admin.php?page=gires-cicd-tools&' . $query));
         exit;
+    }
+
+    public function delete_migration() {
+        check_admin_referer('gires_cicd_delete_migration');
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission refusée');
+        }
+
+        $file = sanitize_file_name($_POST['migration_file'] ?? '');
+        $result = $this->migrations->delete_file($file);
+
+        if (!empty($result['success'])) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=migrations&deleted=1&file=' . rawurlencode($file)));
+            exit;
+        }
+
+        $message = rawurlencode($result['message'] ?? 'Suppression impossible');
+        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=migrations&del_error=1&message=' . $message));
+        exit;
+    }
+
+    public function delete_set() {
+        check_admin_referer('gires_cicd_delete_set');
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission refusée');
+        }
+
+        $set_id = sanitize_key($_POST['set_id'] ?? '');
+        if ($set_id === '') {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=0&reason=invalid'));
+            exit;
+        }
+
+        $current = $this->settings->get_all();
+        $sets = $current['replication_sets'] ?? [];
+        if (!is_array($sets)) {
+            $sets = [];
+        }
+
+        $before = count($sets);
+        $sets = array_values(array_filter($sets, function ($set) use ($set_id) {
+            return !is_array($set) || sanitize_key($set['id'] ?? '') !== $set_id;
+        }));
+
+        if (count($sets) === $before) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=0&reason=notfound'));
+            exit;
+        }
+
+        $current['replication_sets'] = $sets;
+        $this->settings->update($current);
+
+        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=1&id=' . rawurlencode($set_id)));
+        exit;
+    }
+
+    public function delete_sets() {
+        check_admin_referer('gires_cicd_delete_sets');
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission refusée');
+        }
+
+        $raw = $_POST['set_ids'] ?? '';
+        $ids = array_filter(array_map('sanitize_key', array_map('trim', explode(',', (string) $raw))));
+        if (empty($ids)) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=0&reason=invalid'));
+            exit;
+        }
+
+        $current = $this->settings->get_all();
+        $sets = $current['replication_sets'] ?? [];
+        if (!is_array($sets)) {
+            $sets = [];
+        }
+
+        $before = count($sets);
+        $sets = array_values(array_filter($sets, function ($set) use ($ids) {
+            $sid = is_array($set) ? sanitize_key($set['id'] ?? '') : '';
+            return $sid === '' || !in_array($sid, $ids, true);
+        }));
+
+        if (count($sets) === $before) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=0&reason=notfound'));
+            exit;
+        }
+
+        $current['replication_sets'] = $sets;
+        $this->settings->update($current);
+
+        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_deleted=1&deleted_count=' . (int) ($before - count($sets))));
+        exit;
+    }
+
+    public function duplicate_sets() {
+        check_admin_referer('gires_cicd_duplicate_sets');
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission refusée');
+        }
+
+        $raw = $_POST['set_ids'] ?? '';
+        $ids = array_filter(array_map('sanitize_key', array_map('trim', explode(',', (string) $raw))));
+        if (empty($ids)) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_duplicated=0&reason=invalid'));
+            exit;
+        }
+
+        $current = $this->settings->get_all();
+        $sets = $current['replication_sets'] ?? [];
+        if (!is_array($sets)) {
+            $sets = [];
+        }
+
+        $existing_ids = [];
+        foreach ($sets as $set) {
+            if (!is_array($set)) {
+                continue;
+            }
+            $sid = sanitize_key($set['id'] ?? '');
+            if ($sid !== '') {
+                $existing_ids[$sid] = true;
+            }
+        }
+
+        $duplicates = [];
+        foreach ($sets as $set) {
+            if (!is_array($set)) {
+                continue;
+            }
+            $sid = sanitize_key($set['id'] ?? '');
+            if ($sid === '' || !in_array($sid, $ids, true)) {
+                continue;
+            }
+
+            $clone = $set;
+            $clone_name = sanitize_text_field(($set['name'] ?? '') . ' (copie)');
+            if ($clone_name === '(copie)') {
+                $clone_name = 'set copie';
+            }
+            $clone['name'] = $clone_name;
+            $clone['id'] = $this->build_unique_set_id($sid . '_copy', $existing_ids);
+            $duplicates[] = $clone;
+        }
+
+        if (empty($duplicates)) {
+            wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_duplicated=0&reason=notfound'));
+            exit;
+        }
+
+        $current['replication_sets'] = array_values(array_merge($sets, $duplicates));
+        $this->settings->update($current);
+
+        wp_redirect(admin_url('admin.php?page=gires-cicd-tools&tab=sets&set_duplicated=1&duplicated_count=' . count($duplicates)));
+        exit;
+    }
+
+    private function build_unique_set_id(string $base, array &$existing_ids): string {
+        $candidate = sanitize_key($base);
+        if ($candidate === '') {
+            $candidate = 'set_copy';
+        }
+        $i = 1;
+        $unique = $candidate;
+        while (isset($existing_ids[$unique])) {
+            $unique = $candidate . '_' . $i;
+            $i++;
+        }
+        $existing_ids[$unique] = true;
+        return $unique;
     }
 
     public function generate_scripts() {
@@ -225,6 +399,7 @@ class Admin {
             'search' => $set['search'] ?? [],
             'replace' => $set['replace'] ?? [],
             'search_only_tables' => $set['tables'] ?? [],
+            'exclude_option_prefix' => $set['exclude_option_prefix'] ?? '',
         ]);
 
         $export = $this->signed_request('POST', $remote . '/wp-json/gires-cicd/v1/replication/export', $payload, $settings);
@@ -272,6 +447,16 @@ class Admin {
             'set_id' => $set_id,
             'dry_run' => $dry_run,
         ]);
+
+        $current_job = get_option('gires_cicd_job');
+        if (is_array($current_job) && ($current_job['status'] ?? '') === 'running') {
+            $this->log('ajax_run_job: job already running', [
+                'current_job_id' => $current_job['id'] ?? '',
+                'requested_set_id' => $set_id,
+            ]);
+            wp_send_json_error(['message' => __('Un job est déjà en cours. Arrête-le ou attends sa fin.', 'gires-cicd-tools')]);
+        }
+
         $set = $this->replication->get_set_by_name($set_id);
         if (!$set) {
             $this->log('ajax_run_job: set not found', ['set_id' => $set_id]);
@@ -279,6 +464,16 @@ class Admin {
         }
 
         $settings = $this->settings->get_all();
+        $remote_guard = $this->validate_remote_target($settings);
+        if (empty($remote_guard['success'])) {
+            $this->log('ajax_run_job: invalid remote target', [
+                'set_id' => $set_id,
+                'message' => $remote_guard['message'] ?? '',
+                'remote_url' => $settings['remote_url'] ?? '',
+                'home_url' => home_url('/'),
+            ]);
+            wp_send_json_error(['message' => $remote_guard['message'] ?? __('URL distante invalide', 'gires-cicd-tools')]);
+        }
         $compat = $this->ensure_remote_plugin_compatible($settings);
         if (empty($compat['success'])) {
             $this->log('ajax_run_job: remote plugin version mismatch', [
@@ -290,11 +485,13 @@ class Admin {
 
         $job = $this->create_job($set, $dry_run);
         update_option('gires_cicd_job', $job, false);
+        $this->schedule_continue_job(1);
         $this->log('ajax_run_job: job created', ['job_id' => $job['id'] ?? '', 'type' => $job['type'] ?? '']);
+        $start_message = $this->format_job_message(__('Job démarré', 'gires-cicd-tools'), $dry_run);
         wp_send_json_success([
             'job_id' => $job['id'],
             'progress' => $job['progress'],
-            'message' => __('Job démarré', 'gires-cicd-tools'),
+            'message' => $start_message,
             'steps' => $job['steps'] ?? [],
             'step_index' => $job['step_index'] ?? 0,
             'status' => $job['status'] ?? 'running',
@@ -332,8 +529,30 @@ class Admin {
             'step_index' => $job['step_index'] ?? null,
             'status' => $job['status'] ?? '',
         ]);
-        $result = $this->run_next_step($job);
-        update_option('gires_cicd_job', $result['job'], false);
+        if (get_transient('gires_cicd_job_lock')) {
+            $status = $job['status'] ?? 'running';
+            $msg = __('Step en cours...', 'gires-cicd-tools');
+            if ($status === 'stopping' || !empty($job['stop_requested'])) {
+                $msg = __('Arrêt demandé...', 'gires-cicd-tools');
+            }
+            wp_send_json_success([
+                'progress' => $job['progress'] ?? 0,
+                'status' => $status,
+                'message' => $this->format_job_message($msg, !empty($job['dry_run'])),
+                'steps' => $job['steps'] ?? [],
+                'step_index' => $job['step_index'] ?? 0,
+            ]);
+        }
+        set_transient('gires_cicd_job_lock', 1, 30);
+        try {
+            $result = $this->run_next_step($job);
+            update_option('gires_cicd_job', $result['job'], false);
+            if (($result['job']['status'] ?? '') === 'running') {
+                $this->schedule_continue_job(1);
+            }
+        } finally {
+            delete_transient('gires_cicd_job_lock');
+        }
 
         wp_send_json_success([
             'progress' => $result['job']['progress'],
@@ -342,6 +561,45 @@ class Admin {
             'steps' => $result['job']['steps'] ?? [],
             'step_index' => $result['job']['step_index'] ?? 0,
         ]);
+    }
+
+    public function continue_job_background() {
+        $job = get_option('gires_cicd_job');
+        if (empty($job) || !is_array($job)) {
+            return;
+        }
+        if (($job['status'] ?? '') !== 'running') {
+            return;
+        }
+        $lock = get_transient('gires_cicd_job_lock');
+        if ($lock) {
+            $this->schedule_continue_job(2);
+            return;
+        }
+        set_transient('gires_cicd_job_lock', 1, 30);
+        try {
+            $result = $this->run_next_step($job);
+            update_option('gires_cicd_job', $result['job'], false);
+            if (($result['job']['status'] ?? '') === 'running') {
+                $this->schedule_continue_job(1);
+            }
+        } catch (\Throwable $e) {
+            $job['status'] = 'error';
+            update_option('gires_cicd_job', $job, false);
+            $this->release_maintenance_on_error($job, 'background');
+            $this->log('continue_job_background: exception', [
+                'job_id' => $job['id'] ?? '',
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+        } finally {
+            delete_transient('gires_cicd_job_lock');
+        }
+    }
+
+    private function schedule_continue_job(int $delay_seconds = 1): void {
+        $timestamp = time() + max(1, $delay_seconds);
+        wp_schedule_single_event($timestamp, 'gires_cicd_continue_job');
     }
 
     public function ajax_stop_job() {
@@ -363,16 +621,25 @@ class Admin {
         $job = get_option('gires_cicd_job');
         if (empty($job)) {
             $this->log('ajax_stop_job: no active job');
-            wp_send_json_error(['message' => __('Aucun job actif', 'gires-cicd-tools')]);
+            wp_send_json_success([
+                'message' => __('Déjà arrêté', 'gires-cicd-tools'),
+                'progress' => 0,
+                'status' => 'stopped',
+            ]);
         }
 
-        $job['status'] = 'stopped';
+        $is_running = (($job['status'] ?? '') === 'running');
+        $job['stop_requested'] = true;
+        $job['status'] = $is_running ? 'stopping' : 'stopped';
         $job['progress'] = $job['progress'] ?? 0;
         update_option('gires_cicd_job', $job, false);
-        $this->log('ajax_stop_job: stopped', ['job_id' => $job['id'] ?? '']);
+        $this->log('ajax_stop_job: stop requested', [
+            'job_id' => $job['id'] ?? '',
+            'is_running' => $is_running,
+        ]);
 
         // Best effort: disable maintenance if it was enabled
-        Sync::set_maintenance(false);
+        $this->force_disable_local_maintenance();
         $set = $job['set'] ?? [];
         $settings = $this->settings->get_all();
         if (!empty($settings['remote_url'])) {
@@ -382,7 +649,11 @@ class Admin {
             }
         }
 
-        wp_send_json_success(['message' => __('Arrêté', 'gires-cicd-tools'), 'progress' => $job['progress']]);
+        wp_send_json_success([
+            'message' => $is_running ? __('Arrêt demandé...', 'gires-cicd-tools') : __('Arrêté', 'gires-cicd-tools'),
+            'progress' => $job['progress'],
+            'status' => $job['status'],
+        ]);
     }
 
     public function ajax_tail_log() {
@@ -640,6 +911,59 @@ class Admin {
         wp_send_json_success($result);
     }
 
+    public function ajax_preview_job() {
+        if (!check_ajax_referer('gires_cicd_job', '_ajax_nonce', false)) {
+            wp_send_json_error(['message' => __('Nonce invalide', 'gires-cicd-tools')]);
+        }
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission refusée', 'gires-cicd-tools')]);
+        }
+
+        $set_id = sanitize_text_field($_POST['set_id'] ?? '');
+        $dry_run = !empty($_POST['dry_run']);
+        if ($set_id === '') {
+            wp_send_json_error(['message' => __('Set manquant', 'gires-cicd-tools')]);
+        }
+
+        $set = $this->replication->get_set_by_name($set_id);
+        if (!$set) {
+            wp_send_json_error(['message' => __('Set introuvable', 'gires-cicd-tools')]);
+        }
+
+        $job = $this->create_job($set, $dry_run);
+        $tables = $this->get_selected_tables($set);
+        $preview_limit = 80;
+        $tables_preview = array_slice($tables, 0, $preview_limit);
+
+        $search = is_array($set['search'] ?? null) ? array_values($set['search']) : [];
+        $replace = is_array($set['replace'] ?? null) ? array_values($set['replace']) : [];
+        $sr = [];
+        $max = max(count($search), count($replace));
+        for ($i = 0; $i < $max; $i++) {
+            $s = trim((string) ($search[$i] ?? ''));
+            $r = trim((string) ($replace[$i] ?? ''));
+            if ($s === '' && $r === '') {
+                continue;
+            }
+            $sr[] = ['search' => $s, 'replace' => $r];
+        }
+
+        wp_send_json_success([
+            'set_id' => $set['id'] ?? $set_id,
+            'set_name' => $set['name'] ?? $set_id,
+            'type' => $set['type'] ?? 'pull',
+            'dry_run' => $dry_run,
+            'include_code' => !array_key_exists('include_code', $set) || !empty($set['include_code']),
+            'include_media' => !empty($set['include_media']),
+            'exclude_option_prefix' => (string) ($set['exclude_option_prefix'] ?? ''),
+            'steps' => $job['steps'] ?? [],
+            'tables_count' => count($tables),
+            'tables_preview' => $tables_preview,
+            'tables_preview_truncated' => count($tables) > $preview_limit,
+            'search_replace' => $sr,
+        ]);
+    }
+
     private function log($message, array $context = []) {
         $line = '[gires-cicd] ' . $message;
         if (!empty($context)) {
@@ -702,7 +1026,8 @@ class Admin {
             'method' => $method,
             'headers' => $headers,
             'body' => $payload,
-            'timeout' => 60,
+            'timeout' => 180,
+            'connect_timeout' => 10,
         ]);
     }
 
@@ -724,6 +1049,8 @@ class Admin {
             'db_user' => sanitize_text_field($request['db_user'] ?? ($current['db_user'] ?? '')),
             'db_pass' => sanitize_text_field($request['db_pass'] ?? ($current['db_pass'] ?? '')),
             'db_host' => sanitize_text_field($request['db_host'] ?? ($current['db_host'] ?? '')),
+            'smoke_after_sync' => isset($request['smoke_after_sync']) ? !empty($request['smoke_after_sync']) : !empty($current['smoke_after_sync']),
+            'smoke_strict' => isset($request['smoke_strict']) ? !empty($request['smoke_strict']) : !empty($current['smoke_strict']),
             'rsync_excludes' => $this->normalize_rsync_excludes($request['rsync_excludes'] ?? ($current['rsync_excludes'] ?? '')),
             'replication_sets' => $this->normalize_replication_sets($request['replication_sets'] ?? ($current['replication_sets'] ?? [])),
         ];
@@ -782,6 +1109,8 @@ class Admin {
                 'tables' => array_values(array_filter(array_map('sanitize_text_field', $tables))),
                 'search' => array_values(array_filter(array_map('sanitize_text_field', $search))),
                 'replace' => array_values(array_filter(array_map('sanitize_text_field', $replace))),
+                'exclude_option_prefix' => sanitize_text_field($set['exclude_option_prefix'] ?? ''),
+                'include_code' => array_key_exists('include_code', $set) ? !empty($set['include_code']) : true,
                 'include_media' => !empty($set['include_media']),
                 'media_chunk_mb' => (int) ($set['media_chunk_mb'] ?? 512),
                 'temp_prefix' => sanitize_text_field($set['temp_prefix'] ?? 'tmp_'),
@@ -795,18 +1124,22 @@ class Admin {
     private function create_job(array $set, $dry_run = false) {
         $id = bin2hex(random_bytes(6));
         $type = $set['type'] ?? 'pull';
-        $steps = $type === 'push'
-            ? [
-                'code_push',
+        $include_code = !array_key_exists('include_code', $set) || !empty($set['include_code']);
+        if ($type === 'push') {
+            $steps = [
                 'pre_pull_backup',
                 'db_export_local',
                 'db_import_remote',
                 'media_upload_remote',
                 'swap_remote',
                 'cleanup_remote',
-            ]
-            : [
-                'code_pull',
+                'smoke_local',
+            ];
+            if ($include_code) {
+                array_unshift($steps, 'code_push');
+            }
+        } else {
+            $steps = [
                 'maintenance_on_local',
                 'db_export_remote',
                 'db_download_remote',
@@ -816,7 +1149,12 @@ class Admin {
                 'swap_local',
                 'cleanup_local',
                 'maintenance_off_local',
+                'smoke_local',
             ];
+            if ($include_code) {
+                array_unshift($steps, 'code_pull');
+            }
+        }
 
         return [
             'id' => $id,
@@ -826,6 +1164,7 @@ class Admin {
             'step_index' => 0,
             'progress' => 0,
             'status' => 'running',
+            'stop_requested' => false,
             'dry_run' => $dry_run,
             'context' => [
                 'media_part' => 1,
@@ -843,16 +1182,23 @@ class Admin {
         $index = (int) $job['step_index'];
         $message = '';
 
+        if ($this->should_stop_job($job)) {
+            $job['status'] = 'stopped';
+            $job['stop_requested'] = true;
+            return ['job' => $job, 'message' => $this->format_job_message(__('Arrêt demandé', 'gires-cicd-tools'), $dry_run)];
+        }
+
         if ($index >= count($steps)) {
             $job['status'] = 'done';
             $job['progress'] = 100;
-            return ['job' => $job, 'message' => __('Terminé', 'gires-cicd-tools')];
+            return ['job' => $job, 'message' => $this->format_job_message(__('Terminé', 'gires-cicd-tools'), $dry_run)];
         }
 
         $step = $steps[$index];
         $result = ['success' => true];
 
-        switch ($step) {
+        try {
+            switch ($step) {
             case 'code_push':
                 if ($dry_run) {
                     $message = __('Test à blanc: sync code ignorée', 'gires-cicd-tools');
@@ -890,12 +1236,22 @@ class Admin {
                     $message = __('Test à blanc: maintenance locale ignorée', 'gires-cicd-tools');
                     break;
                 }
+                // En mode AJAX (UI admin), activer .maintenance coupe aussi admin-ajax.php
+                // et casse le suivi de job. On ignore donc cette étape pour les runs pilotés UI.
+                if (wp_doing_ajax()) {
+                    $message = __('Maintenance locale ignorée en mode AJAX', 'gires-cicd-tools');
+                    break;
+                }
                 Sync::set_maintenance(true);
                 $message = __('Maintenance locale activée', 'gires-cicd-tools');
                 break;
             case 'maintenance_off_local':
                 if ($dry_run) {
                     $message = __('Test à blanc: maintenance locale ignorée', 'gires-cicd-tools');
+                    break;
+                }
+                if (wp_doing_ajax()) {
+                    $message = __('Maintenance locale ignorée en mode AJAX', 'gires-cicd-tools');
                     break;
                 }
                 Sync::set_maintenance(false);
@@ -925,6 +1281,7 @@ class Admin {
                     'search' => $set['search'] ?? [],
                     'replace' => $set['replace'] ?? [],
                     'search_only_tables' => $tables,
+                    'exclude_option_prefix' => $set['exclude_option_prefix'] ?? '',
                     'insert_chunk_size' => 1,
                 ];
                 $result = $this->remote_request('POST', '/wp-json/gires-cicd/v1/replication/export', $payload);
@@ -1185,8 +1542,33 @@ class Admin {
                     $message = __('Nettoyage ignoré', 'gires-cicd-tools');
                 }
                 break;
-            default:
+            case 'smoke_local':
+                $smoke = $this->run_local_smoke_tests($dry_run);
+                if (empty($smoke['success'])) {
+                    $result = ['success' => false, 'message' => $smoke['message'] ?? __('Smoke tests KO', 'gires-cicd-tools')];
+                    break;
+                }
+                $message = $smoke['message'] ?? __('Smoke tests OK', 'gires-cicd-tools');
                 break;
+                default:
+                    break;
+            }
+        } catch (\Throwable $e) {
+            $this->release_maintenance_on_error($job, $step);
+            $this->log('run_next_step: exception', [
+                'step' => $step,
+                'job_id' => $job['id'] ?? '',
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
+            $job['status'] = 'error';
+            return [
+                'job' => $job,
+                'message' => $this->format_job_message(
+                    __('Erreur inattendue pendant le job', 'gires-cicd-tools') . ': ' . $e->getMessage(),
+                    $dry_run
+                ),
+            ];
         }
 
         if (empty($result['success']) && isset($result['message'])) {
@@ -1197,14 +1579,50 @@ class Admin {
                 'job_id' => $job['id'] ?? '',
             ]);
             $job['status'] = 'error';
-            return ['job' => $job, 'message' => $result['message']];
+            return ['job' => $job, 'message' => $this->format_job_message((string) $result['message'], $dry_run)];
+        }
+
+        if ($this->should_stop_job($job)) {
+            $job['status'] = 'stopped';
+            $job['stop_requested'] = true;
+            return ['job' => $job, 'message' => $this->format_job_message(__('Arrêt demandé', 'gires-cicd-tools'), $dry_run)];
         }
 
         $job['step_index'] = $index + 1;
         $job['progress'] = (int) round((($job['step_index']) / max(1, count($steps))) * 100);
         $job['status'] = $job['step_index'] >= count($steps) ? 'done' : 'running';
+        $base_message = $message !== '' ? $message : __('Terminé', 'gires-cicd-tools');
+        return ['job' => $job, 'message' => $this->format_job_message($base_message, $dry_run)];
+    }
 
-        return ['job' => $job, 'message' => $message];
+    private function should_stop_job(array $job): bool {
+        if (!empty($job['stop_requested'])) {
+            return true;
+        }
+        $job_id = (string) ($job['id'] ?? '');
+        if ($job_id === '') {
+            return false;
+        }
+        $latest = get_option('gires_cicd_job');
+        if (!is_array($latest) || (string) ($latest['id'] ?? '') !== $job_id) {
+            return false;
+        }
+        if (!empty($latest['stop_requested'])) {
+            return true;
+        }
+        $status = (string) ($latest['status'] ?? '');
+        return in_array($status, ['stopping', 'stopped'], true);
+    }
+
+    private function format_job_message(string $message, bool $dry_run): string {
+        $normalized = trim($message);
+        $normalized = preg_replace('/^\[(DRY-RUN|REEL)\]\s*/u', '', $normalized) ?? $normalized;
+        $normalized = preg_replace('/^Test\s+à\s+blanc\s*:\s*/u', '', $normalized) ?? $normalized;
+        if ($normalized === '') {
+            $normalized = __('Terminé', 'gires-cicd-tools');
+        }
+        $mode = $dry_run ? 'DRY-RUN' : 'REEL';
+        return '[' . $mode . '] ' . $normalized;
     }
 
     private function release_maintenance_on_error(array $job, string $failed_step) {
@@ -1230,7 +1648,7 @@ class Admin {
         if ($type === 'pull') {
             $maintenance_index = array_search('maintenance_on_local', $steps, true);
             if ($maintenance_index !== false && $index >= $maintenance_index) {
-                Sync::set_maintenance(false);
+                $this->force_disable_local_maintenance();
                 $this->log('release_maintenance_on_error: local off', [
                     'failed_step' => $failed_step,
                     'job_id' => $job['id'] ?? '',
@@ -1339,6 +1757,26 @@ class Admin {
 
         $this->log('disable_remote_maintenance_via_ssh: success');
         return true;
+    }
+
+    private function force_disable_local_maintenance(): bool {
+        $file = ABSPATH . '.maintenance';
+        if (!is_file($file)) {
+            return true;
+        }
+        if (Sync::set_maintenance(false)) {
+            return true;
+        }
+        @chmod($file, 0644);
+        if (@unlink($file)) {
+            return true;
+        }
+        $this->log('force_disable_local_maintenance: failed', [
+            'file' => $file,
+            'is_writable' => is_writable($file),
+            'owner' => function_exists('fileowner') ? @fileowner($file) : null,
+        ]);
+        return false;
     }
 
     private function upload_media_diff_to_remote(array $set): array {
@@ -1528,6 +1966,7 @@ class Admin {
         if ($skip_uploads) {
             $prefix .= 'SKIP_UPLOADS=1 ';
         }
+        $prefix .= 'RUN_SMOKE_AFTER_SYNC=0 ';
 
         $cmd = $prefix . '/bin/bash ' . escapeshellarg($script_path) . ' 2>&1';
         $output = [];
@@ -1549,6 +1988,49 @@ class Admin {
             ]);
         }
         return ['success' => true, 'message' => __('Sync code OK', 'gires-cicd-tools')];
+    }
+
+    private function run_local_smoke_tests(bool $dry_run): array {
+        $settings = $this->settings->get_all();
+        if (empty($settings['smoke_after_sync'])) {
+            return ['success' => true, 'message' => __('Smoke tests ignorés (désactivés)', 'gires-cicd-tools')];
+        }
+
+        $script = ABSPATH . 'scripts/smoke_wp.sh';
+        if (!is_file($script) || !is_executable($script)) {
+            return ['success' => false, 'message' => __('Script smoke introuvable ou non exécutable', 'gires-cicd-tools')];
+        }
+
+        $strict = !empty($settings['smoke_strict']);
+        $base_url = home_url('/');
+        $prefix = '';
+        $prefix .= 'BASE_URL=' . escapeshellarg((string) $base_url) . ' ';
+        $prefix .= 'WP_PATH=' . escapeshellarg((string) ABSPATH) . ' ';
+        $prefix .= 'SKIP_LOGIN=1 ';
+        $prefix .= 'REQUIRED_PLUGINS=' . escapeshellarg('gires-cicd-tools') . ' ';
+
+        $cmd = $prefix . '/bin/bash ' . escapeshellarg($script) . ' 2>&1';
+        $output = [];
+        $code = 0;
+        exec($cmd, $output, $code);
+        $out = trim(implode("\n", $output));
+
+        if ($code !== 0) {
+            $summary = __('Smoke tests KO', 'gires-cicd-tools');
+            if ($dry_run) {
+                $summary = __('Smoke tests KO (dry-run)', 'gires-cicd-tools');
+            }
+            if ($strict) {
+                return ['success' => false, 'message' => $summary . ($out !== '' ? ': ' . $out : '')];
+            }
+            $this->log('run_local_smoke_tests: non-strict failure', [
+                'dry_run' => $dry_run,
+                'output' => $out,
+            ]);
+            return ['success' => true, 'message' => $summary . ' - ' . __('non bloquant', 'gires-cicd-tools')];
+        }
+
+        return ['success' => true, 'message' => __('Smoke tests OK', 'gires-cicd-tools')];
     }
 
     private function tail_file(string $path, int $lines, string $filter = ''): string {
@@ -1603,6 +2085,10 @@ class Admin {
 
     private function remote_request($method, $path, array $payload = []) {
         $settings = $this->settings->get_all();
+        $remote_guard = $this->validate_remote_target($settings);
+        if (empty($remote_guard['success'])) {
+            return ['success' => false, 'message' => $remote_guard['message'] ?? __('URL distante invalide', 'gires-cicd-tools')];
+        }
         $remote = rtrim($settings['remote_url'] ?? '', '/');
         if (empty($remote)) {
             $this->log('remote_request: missing remote_url');
@@ -1645,6 +2131,10 @@ class Admin {
 
     private function remote_request_raw($method, $path, $body, $content_type = 'application/octet-stream') {
         $settings = $this->settings->get_all();
+        $remote_guard = $this->validate_remote_target($settings);
+        if (empty($remote_guard['success'])) {
+            return ['success' => false, 'message' => $remote_guard['message'] ?? __('URL distante invalide', 'gires-cicd-tools')];
+        }
         $remote = rtrim($settings['remote_url'] ?? '', '/');
         if (empty($remote)) {
             $this->log('remote_request_raw: missing remote_url');
@@ -1672,7 +2162,8 @@ class Admin {
             'method' => $method,
             'headers' => $headers,
             'body' => $body,
-            'timeout' => 60,
+            'timeout' => 180,
+            'connect_timeout' => 10,
         ]);
 
         if (is_wp_error($response)) {
@@ -1701,6 +2192,15 @@ class Admin {
 
     private function remote_download($path) {
         $settings = $this->settings->get_all();
+        $remote_guard = $this->validate_remote_target($settings);
+        if (empty($remote_guard['success'])) {
+            $this->log('remote_download: invalid remote target', [
+                'message' => $remote_guard['message'] ?? '',
+                'remote_url' => $settings['remote_url'] ?? '',
+                'home_url' => home_url('/'),
+            ]);
+            return false;
+        }
         $remote = rtrim($settings['remote_url'] ?? '', '/');
         if (empty($remote)) {
             $this->log('remote_download: missing remote_url');
@@ -1776,6 +2276,10 @@ class Admin {
     }
 
     private function fetch_remote_status(array $settings) {
+        $remote_guard = $this->validate_remote_target($settings);
+        if (empty($remote_guard['success'])) {
+            return ['success' => false, 'message' => $remote_guard['message'] ?? __('URL distante invalide', 'gires-cicd-tools')];
+        }
         $remote = rtrim($settings['remote_url'] ?? '', '/');
         if (empty($remote)) {
             return ['success' => false, 'message' => __('URL distante manquante', 'gires-cicd-tools')];
@@ -1790,11 +2294,63 @@ class Admin {
             return ['success' => false, 'message' => $response->get_error_message()];
         }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $status_code = (int) wp_remote_retrieve_response_code($response);
+        $raw_body = (string) wp_remote_retrieve_body($response);
+        $body = json_decode($raw_body, true);
+
+        if ($status_code >= 400) {
+            $remote_message = '';
+            if (is_array($body)) {
+                $remote_message = (string) ($body['message'] ?? $body['code'] ?? '');
+            }
+            if ($remote_message === '') {
+                $remote_message = trim(wp_strip_all_tags($raw_body));
+                if ($remote_message !== '') {
+                    $remote_message = substr($remote_message, 0, 220);
+                }
+            }
+            $message = sprintf(__('Status distant HTTP %d', 'gires-cicd-tools'), $status_code);
+            if ($remote_message !== '') {
+                $message .= ' - ' . $remote_message;
+            }
+            return ['success' => false, 'message' => $message];
+        }
+
         if (!is_array($body)) {
             return ['success' => false, 'message' => __('Reponse status distante invalide', 'gires-cicd-tools')];
         }
+        if (!empty($body['code']) && empty($body['plugin_version'])) {
+            $remote_message = (string) ($body['message'] ?? $body['code']);
+            return ['success' => false, 'message' => __('Status distant invalide: ', 'gires-cicd-tools') . $remote_message];
+        }
 
         return ['success' => true, 'body' => $body];
+    }
+
+    private function validate_remote_target(array $settings): array {
+        $remote = trim((string) ($settings['remote_url'] ?? ''));
+        if ($remote === '') {
+            return ['success' => false, 'message' => __('URL distante manquante', 'gires-cicd-tools')];
+        }
+
+        $remote_norm = rtrim($remote, '/');
+        $home_norm = rtrim((string) home_url('/'), '/');
+        if ($remote_norm === $home_norm) {
+            return [
+                'success' => false,
+                'message' => __('URL distante invalide: elle pointe vers ce site local. Configure l’URL de production.', 'gires-cicd-tools'),
+            ];
+        }
+
+        $remote_host = strtolower((string) (wp_parse_url($remote, PHP_URL_HOST) ?? ''));
+        $home_host = strtolower((string) (wp_parse_url(home_url('/'), PHP_URL_HOST) ?? ''));
+        if ($remote_host !== '' && $remote_host === $home_host) {
+            return [
+                'success' => false,
+                'message' => __('URL distante invalide: host identique au site local. Configure un host de production.', 'gires-cicd-tools'),
+            ];
+        }
+
+        return ['success' => true];
     }
 }

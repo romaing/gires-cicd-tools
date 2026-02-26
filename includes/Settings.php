@@ -26,7 +26,17 @@ class Settings {
             'db_user' => '',
             'db_pass' => '',
             'db_host' => 'localhost',
-            'rsync_excludes' => "wp-config.php",
+            'smoke_after_sync' => true,
+            'smoke_strict' => false,
+            'rsync_excludes' => "wp-config.php
+.git/
+.gitmodules
+Documentation/
+scripts/
+backups/
+vendor/
+Telechargements/
+Téléchargements/",
             'replication_sets' => [
                 [
                     'id' => 'pull_prod',
@@ -78,6 +88,10 @@ class Settings {
 
         if (trim((string) ($all['rsync_excludes'] ?? '')) === '') {
             $all['rsync_excludes'] = self::defaults()['rsync_excludes'];
+            $must_persist = true;
+        }
+        if (!isset($all['replication_sets']) || !is_array($all['replication_sets']) || count($all['replication_sets']) === 0) {
+            $all['replication_sets'] = self::defaults()['replication_sets'];
             $must_persist = true;
         }
 

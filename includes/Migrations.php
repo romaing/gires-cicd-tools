@@ -109,6 +109,68 @@ class Migrations {
         ];
     }
 
+    public function delete_file($name) {
+        $name = basename((string) $name);
+        if ($name === '' || !preg_match('/\.(sql|php)$/i', $name)) {
+            return [
+                'success' => false,
+                'message' => 'Nom de migration invalide',
+            ];
+        }
+
+        $dir = $this->get_migrations_dir();
+        if (!is_dir($dir)) {
+            return [
+                'success' => false,
+                'message' => 'Dossier migrations introuvable',
+            ];
+        }
+
+        $path = $dir . '/' . $name;
+        if (!is_file($path)) {
+            return [
+                'success' => false,
+                'message' => 'Fichier migration introuvable',
+            ];
+        }
+
+        $real_dir = realpath($dir);
+        $real_file = realpath($path);
+        if ($real_dir === false || $real_file === false) {
+            return [
+                'success' => false,
+                'message' => 'Chemin migration invalide',
+            ];
+        }
+
+        $real_dir = rtrim($real_dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+        if (strpos($real_file, $real_dir) !== 0) {
+            return [
+                'success' => false,
+                'message' => 'Accès refusé hors dossier migrations',
+            ];
+        }
+
+        if (!@unlink($real_file)) {
+            return [
+                'success' => false,
+                'message' => 'Suppression du fichier impossible',
+            ];
+        }
+
+        $applied = $this->get_applied();
+        if (in_array($name, $applied, true)) {
+            $applied = array_values(array_filter($applied, function ($item) use ($name) {
+                return $item !== $name;
+            }));
+            $this->store_applied($applied);
+        }
+
+        return [
+            'success' => true,
+        ];
+    }
+
     private function store_applied(array $applied) {
         $option_name = $this->settings->get('applied_option', 'gires_project_migrations');
         update_option($option_name, array_values($applied));
